@@ -1,1 +1,37 @@
+# Rust build artifacts
 /target
+/src-tauri/target
+
+# Node / pnpm
+node_modules/
+.pnpm-debug.log
+
+# SvelteKit generated files
+/.svelte-kit
+/build
+
+# Tauri generated/bundled output
+/src-tauri/gen
+/src-tauri/target
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Claude Code local configuration
+.claude/settings.local.json
