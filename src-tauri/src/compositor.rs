@@ -44,8 +44,15 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     img_layer.opacity,
                 );
             }
-            Layer::Text(_text_layer) => {
-                // Text rendering is wired in Task 6.
+            Layer::Text(text_layer) => {
+                if let Ok(text_img) = crate::text_renderer::render_text(text_layer) {
+                    composite_rgba_buffer(
+                        &mut target,
+                        &text_img,
+                        text_layer.position,
+                        text_layer.opacity,
+                    );
+                }
             }
         }
     }

@@ -71,3 +71,15 @@ fn composite_image_with_half_opacity() {
     assert!(pixel[0] > 100 && pixel[0] < 160); // red blended
     assert!(pixel[2] > 100 && pixel[2] < 160); // blue blended
 }
+
+#[test]
+fn composite_text_layer_adds_visible_pixels() {
+    let base_large = RgbaImage::from_pixel(200, 200, Rgba([255, 0, 0, 255]));
+    let mut layer = TextLayer::new("Hi".to_string());
+    layer.position = (10.0, 10.0);
+    layer.frame_range = (0, 0);
+    let layers = vec![Layer::Text(layer)];
+    let result = composite_frame(&base_large, &layers, 0);
+    let has_text = result.pixels().any(|p| *p != Rgba([255, 0, 0, 255]));
+    assert!(has_text, "Text layer should modify some pixels");
+}
