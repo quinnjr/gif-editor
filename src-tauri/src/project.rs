@@ -35,7 +35,10 @@ pub struct LayerInfo {
     pub name: String,
     pub layer_type: String,
     pub position: (f64, f64),
-    pub scale: f64,
+    pub scale_x: f64,
+    pub scale_y: f64,
+    pub skew_x: f64,
+    pub skew_y: f64,
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
@@ -59,7 +62,10 @@ impl From<&Layer> for LayerInfo {
                 name: l.name.clone(),
                 layer_type: "image".to_string(),
                 position: l.position,
-                scale: l.scale,
+                scale_x: l.scale_x,
+                scale_y: l.scale_y,
+                skew_x: l.skew_x,
+                skew_y: l.skew_y,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -77,7 +83,10 @@ impl From<&Layer> for LayerInfo {
                 name: l.name.clone(),
                 layer_type: "text".to_string(),
                 position: l.position,
-                scale: l.scale,
+                scale_x: l.scale_x,
+                scale_y: l.scale_y,
+                skew_x: l.skew_x,
+                skew_y: l.skew_y,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -100,7 +109,10 @@ impl From<&Layer> for LayerInfo {
 pub struct LayerUpdate {
     pub name: Option<String>,
     pub position: Option<(f64, f64)>,
-    pub scale: Option<f64>,
+    pub scale_x: Option<f64>,
+    pub scale_y: Option<f64>,
+    pub skew_x: Option<f64>,
+    pub skew_y: Option<f64>,
     pub opacity: Option<f64>,
     pub frame_range: Option<(usize, usize)>,
     pub visible: Option<bool>,
@@ -260,8 +272,17 @@ impl Project {
                 if let Some(v) = changes.position {
                     l.position = v;
                 }
-                if let Some(v) = changes.scale {
-                    l.scale = v;
+                if let Some(v) = changes.scale_x {
+                    l.scale_x = v;
+                }
+                if let Some(v) = changes.scale_y {
+                    l.scale_y = v;
+                }
+                if let Some(v) = changes.skew_x {
+                    l.skew_x = v;
+                }
+                if let Some(v) = changes.skew_y {
+                    l.skew_y = v;
                 }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;
@@ -281,8 +302,17 @@ impl Project {
                 if let Some(v) = changes.position {
                     l.position = v;
                 }
-                if let Some(v) = changes.scale {
-                    l.scale = v;
+                if let Some(v) = changes.scale_x {
+                    l.scale_x = v;
+                }
+                if let Some(v) = changes.scale_y {
+                    l.scale_y = v;
+                }
+                if let Some(v) = changes.skew_x {
+                    l.skew_x = v;
+                }
+                if let Some(v) = changes.skew_y {
+                    l.skew_y = v;
                 }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;

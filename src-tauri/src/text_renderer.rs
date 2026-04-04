@@ -24,7 +24,7 @@ pub fn render_text(layer: &TextLayer) -> Result<RgbaImage, AppError> {
     }
 
     let font = load_font(&layer.font_family)?;
-    let scale = PxScale::from((layer.font_size * layer.scale) as f32);
+    let scale = PxScale::from(layer.font_size as f32);
 
     // --- measure the text extent ---
     let (text_w, text_h, ascent) = measure_text(&font, &layer.text, scale);

@@ -26,9 +26,12 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                 };
 
                 // Scale the source image if needed.
-                let scaled: RgbaImage = if (img_layer.scale - 1.0).abs() > f64::EPSILON {
-                    let new_w = ((src.width() as f64) * img_layer.scale).round() as u32;
-                    let new_h = ((src.height() as f64) * img_layer.scale).round() as u32;
+                // TODO(Task 4): replace with full affine warp using scale_x/scale_y/skew_x/skew_y.
+                let scaled: RgbaImage = if (img_layer.scale_x - 1.0).abs() > f64::EPSILON
+                    || (img_layer.scale_y - 1.0).abs() > f64::EPSILON
+                {
+                    let new_w = ((src.width() as f64) * img_layer.scale_x).round() as u32;
+                    let new_h = ((src.height() as f64) * img_layer.scale_y).round() as u32;
                     if new_w == 0 || new_h == 0 {
                         continue;
                     }
