@@ -4,6 +4,7 @@
 // entry point is kept minimal; this lib is also the compilation unit
 // used on mobile targets.
 
+pub mod compositor;
 pub mod error;
 pub mod gif_decoder;
 pub mod layer;
