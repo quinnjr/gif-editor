@@ -7,6 +7,7 @@ use lru::LruCache;
 use std::num::NonZeroUsize;
 
 use crate::error::AppError;
+use crate::frame_source::FrameSource;
 
 const DEFAULT_CACHE_CAP: usize = 50;
 
@@ -141,5 +142,28 @@ impl GifData {
             "could not decode frame {} (only {} frames found)",
             index, current
         )))
+    }
+}
+
+impl FrameSource for GifData {
+    fn frame_count(&self) -> usize {
+        self.frame_count
+    }
+
+    fn dimensions(&self) -> (u32, u32) {
+        self.dimensions
+    }
+
+    fn delays(&self) -> &[u16] {
+        &self.delays
+    }
+
+    fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    fn get_frame(&mut self, index: usize) -> Result<RgbaImage, AppError> {
+        // Delegate to the inherent method which handles caching.
+        GifData::get_frame(self, index)
     }
 }

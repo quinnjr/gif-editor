@@ -16,7 +16,12 @@
     ui.selectedLayerId ? project.layers.find((l) => l.id === ui.selectedLayerId) ?? null : null,
   );
 
-  // Load thumbnails whenever metadata changes
+  // Load thumbnails whenever metadata changes.
+  //
+  // Thumbnails are loaded sequentially so that video files (where each frame
+  // requires an ffmpeg subprocess) don't flood the backend with hundreds of
+  // concurrent decode requests, which starves Tauri's IPC thread pool and
+  // freezes the UI.
   $effect(() => {
     const meta = project.metadata;
     if (!meta) {
@@ -25,38 +30,67 @@
     }
     const count = meta.frame_count;
     thumbnails = new Array(count).fill('');
-    for (let i = 0; i < count; i++) {
-      project.getFramePath(i).then((path) => {
-        thumbnails[i] = convertFileSrc(path);
-      });
-    }
+
+    let cancelled = false;
+
+    (async () => {
+      for (let i = 0; i < count; i++) {
+        if (cancelled) break;
+        try {
+          const path = await project.getFramePath(i);
+          if (!cancelled) {
+            thumbnails[i] = convertFileSrc(path);
+          }
+        } catch {
+          // Frame decode failed — leave as empty placeholder.
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   });
 
-  // Playback timer using $effect + setTimeout chain
+  // Playback timer.
+  //
+  // Reads of ui.currentFrame are kept inside async callbacks (setTimeout /
+  // Promise) so the $effect only tracks ui.isPlaying, project.metadata, and
+  // ui.playbackSpeed — it does NOT re-run on every frame advance.
+  //
+  // Each tick pre-decodes the next frame concurrently with the frame-delay
+  // wait so video playback isn't bottlenecked by sequential ffmpeg calls.
   $effect(() => {
     if (!ui.isPlaying || !project.metadata) return;
 
     let cancelled = false;
     const meta = project.metadata;
+    const speed = ui.playbackSpeed;
 
-    function schedule() {
+    async function tick() {
       if (cancelled) return;
-      const frameIndex = ui.currentFrame;
-      const delayMs = (meta.delays[frameIndex] ?? 100) / ui.playbackSpeed;
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        const next = (ui.currentFrame + 1) % meta.frame_count;
-        ui.setFrame(next);
-        schedule();
-      }, delayMs);
-      return timer;
+      const cur = ui.currentFrame;
+      const next = (cur + 1) % meta.frame_count;
+      const delayMs = (meta.delays[cur] ?? 100) / speed;
+
+      // Wait for the frame delay and pre-decode the next frame in parallel.
+      await Promise.all([
+        new Promise((r) => setTimeout(r, delayMs)),
+        project.getFramePath(next),
+      ]);
+
+      if (cancelled) return;
+      ui.setFrame(next);
+      tick();
     }
 
-    const timer = schedule();
+    // Kick off from a setTimeout so the initial ui.currentFrame read
+    // happens outside the synchronous effect body (no dependency).
+    const timer = setTimeout(tick, 0);
 
     return () => {
       cancelled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
     };
   });
 

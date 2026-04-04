@@ -7,16 +7,18 @@
   let { onerror }: { onerror: (msg: string) => void } = $props();
   let showExport = $state(false);
 
-  async function handleOpenGif() {
+  async function handleOpenFile() {
     const path = await open({
-      filters: [{ name: 'GIF', extensions: ['gif'] }],
+      filters: [
+        { name: 'Supported Media', extensions: ['gif', 'mp4', 'webm'] },
+      ],
     });
     if (!path) return;
     try {
       await project.open(path);
       ui.setFrame(0);
     } catch (e) {
-      onerror(`Failed to open GIF: ${e}`);
+      onerror(`Failed to open file: ${e}`);
     }
   }
 
@@ -44,9 +46,9 @@
 </script>
 
 <div class="flex items-center gap-2 border-b border-zinc-700 bg-zinc-800 px-4 py-2">
-  <button onclick={handleOpenGif}
+  <button onclick={handleOpenFile}
     class="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500">
-    Open GIF
+    Open File
   </button>
   <button onclick={handleAddImage} disabled={!project.isOpen}
     class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40">

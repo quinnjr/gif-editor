@@ -24,7 +24,10 @@
     }
   });
 
-  // Re-render whenever the current frame index or layer list changes
+  // Re-render whenever the current frame index or layer list changes.
+  //
+  // A `stale` flag discards async callbacks from previous effect runs so
+  // pausing playback doesn't keep rendering queued-up frames.
   $effect(() => {
     const frame = ui.currentFrame;
     const layers = project.layers;
@@ -32,12 +35,14 @@
 
     if (!ctx || !project.metadata) return;
 
+    let stale = false;
+
     if (previewExport) {
-      // Server-rendered composite path
       cmd.renderComposite(frame).then((dataUrl) => {
+        if (stale || !ctx) return;
         const img = new Image();
         img.onload = () => {
-          if (!ctx) return;
+          if (stale || !ctx) return;
           const { width, height } = ctx.canvas;
           ctx.clearRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
@@ -45,12 +50,13 @@
         img.src = convertFileSrc(dataUrl);
       });
     } else {
-      // Client-side compositing path
       project.getFramePath(frame).then((framePath) => {
-        if (!ctx) return;
+        if (stale || !ctx) return;
         renderFrame(ctx, framePath, layers, frame);
       });
     }
+
+    return () => { stale = true; };
   });
 
   // --- Hit testing helpers ---

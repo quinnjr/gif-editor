@@ -2,6 +2,7 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { listen } from '@tauri-apps/api/event';
   import * as cmd from '$lib/commands';
+  import { project } from '$lib/stores/project.svelte';
   import type { ExportFormat } from '$lib/types';
 
   let { open = false, onclose }: { open: boolean; onclose: () => void } = $props();
@@ -75,10 +76,12 @@
       </label>
 
       {#if exporting}
+        {@const total = project.metadata?.frame_count ?? 1}
+        {@const pct = Math.min(100, Math.round((progress / total) * 100))}
         <div class="h-2 rounded-full bg-zinc-700">
-          <div class="h-full rounded-full bg-blue-500 transition-all" style="width: {Math.round(progress * 100)}%"></div>
+          <div class="h-full rounded-full bg-blue-500 transition-all" style="width: {pct}%"></div>
         </div>
-        <p class="text-center text-xs text-zinc-400">{Math.round(progress * 100)}%</p>
+        <p class="text-center text-xs text-zinc-400">{pct}% &mdash; frame {progress} / {total}</p>
       {/if}
 
       {#if error}

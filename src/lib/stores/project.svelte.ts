@@ -9,7 +9,7 @@ class ProjectStore {
   get isOpen() { return this.metadata !== null; }
 
   async open(path: string) {
-    this.metadata = await cmd.openGif(path);
+    this.metadata = await cmd.openFile(path);
     this.layers = [];
     this.framePaths = new Map();
   }

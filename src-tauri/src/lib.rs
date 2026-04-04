@@ -8,10 +8,12 @@ pub mod compositor;
 pub mod error;
 pub mod export;
 pub mod fonts;
+pub mod frame_source;
 pub mod gif_decoder;
 pub mod layer;
 pub mod project;
 pub mod text_renderer;
+pub mod video_decoder;
 
 mod commands;
 
@@ -29,6 +31,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(None::<Project>) as ProjectState)
         .invoke_handler(tauri::generate_handler![
+            commands::open_file,
             commands::open_gif,
             commands::get_frame,
             commands::add_image_layer,

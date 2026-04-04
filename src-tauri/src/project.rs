@@ -10,8 +10,10 @@ use uuid::Uuid;
 
 use crate::compositor::composite_frame;
 use crate::error::AppError;
+use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
 use crate::layer::{ImageLayer, Layer, Stroke, TextLayer};
+use crate::video_decoder::VideoData;
 
 // ---------------------------------------------------------------------------
 // Serialisable types returned to / received from the frontend
@@ -114,7 +116,7 @@ pub struct LayerUpdate {
 // ---------------------------------------------------------------------------
 
 pub struct Project {
-    pub gif: GifData,
+    pub source: Box<dyn FrameSource>,
     pub layers: Vec<Layer>,
     pub temp_dir: tempfile::TempDir,
 }
@@ -127,21 +129,36 @@ impl Project {
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    /// Open a GIF at `path`, decode its metadata, and set up a temp directory
-    /// for frame PNGs.  Returns both the `Project` and the metadata struct
-    /// that should be forwarded to the frontend.
+    /// Open a media file at `path`, decode its metadata, and set up a temp
+    /// directory for frame PNGs.  Supports GIF, MP4, and WebM.  Returns both
+    /// the `Project` and the metadata struct for the frontend.
     pub fn open(path: &Path) -> Result<(Self, GifMetadata), AppError> {
-        let gif = GifData::open(path)?;
-        let (width, height) = gif.dimensions();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+
+        let source: Box<dyn FrameSource> = match ext.as_str() {
+            "gif" => Box::new(GifData::open(path)?),
+            "mp4" | "webm" => Box::new(VideoData::open(path)?),
+            other => {
+                return Err(AppError::VideoDecode(format!(
+                    "unsupported file format: .{other}"
+                )));
+            }
+        };
+
+        let (width, height) = source.dimensions();
         let metadata = GifMetadata {
-            frame_count: gif.frame_count(),
+            frame_count: source.frame_count(),
             width,
             height,
-            delays: gif.delays().to_vec(),
+            delays: source.delays().to_vec(),
         };
         let temp_dir = tempfile::TempDir::new()?;
         let project = Project {
-            gif,
+            source,
             layers: Vec::new(),
             temp_dir,
         };
@@ -160,7 +177,7 @@ impl Project {
         let png_path: PathBuf = self.temp_dir.path().join(format!("frame_{index:05}.png"));
 
         if !png_path.exists() {
-            let frame: RgbaImage = self.gif.get_frame(index)?;
+            let frame: RgbaImage = self.source.get_frame(index)?;
             frame
                 .save(&png_path)
                 .map_err(|e| AppError::Export(e.to_string()))?;
@@ -181,7 +198,7 @@ impl Project {
             .to_rgba8();
 
         let (w, h) = img.dimensions();
-        let frame_count = self.gif.frame_count();
+        let frame_count = self.source.frame_count();
         let file_name = Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -206,7 +223,7 @@ impl Project {
         color: Option<[u8; 4]>,
         stroke: Option<Stroke>,
     ) -> LayerInfo {
-        let frame_count = self.gif.frame_count();
+        let frame_count = self.source.frame_count();
         let mut layer = TextLayer::new(text);
         if let Some(ff) = font_family {
             layer.font_family = ff;
@@ -330,7 +347,7 @@ impl Project {
     /// Composite all layers onto the GIF frame at `frame_index`, save the
     /// result as a PNG in the temp directory, and return its path.
     pub fn render_composite(&mut self, frame_index: usize) -> Result<String, AppError> {
-        let base: RgbaImage = self.gif.get_frame(frame_index)?;
+        let base: RgbaImage = self.source.get_frame(frame_index)?;
         let composited = composite_frame(&base, &self.layers, frame_index);
 
         let out_path: PathBuf = self

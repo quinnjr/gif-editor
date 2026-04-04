@@ -6,6 +6,8 @@ pub enum AppError {
     NoProject,
     #[error("Failed to decode GIF: {0}")]
     GifDecode(String),
+    #[error("Failed to decode video: {0}")]
+    VideoDecode(String),
     #[error("Failed to load image: {0}")]
     ImageLoad(String),
     #[error("Layer not found: {0}")]

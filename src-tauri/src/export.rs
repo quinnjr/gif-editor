@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::compositor;
 use crate::error::AppError;
-use crate::gif_decoder::GifData;
+use crate::frame_source::FrameSource;
 use crate::layer::Layer;
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ pub struct ExportSettings {
 /// `on_progress` is called after each frame is written with the number of
 /// frames completed so far (1-based).
 pub fn export_gif(
-    gif: &mut GifData,
+    gif: &mut dyn FrameSource,
     layers: &[Layer],
     settings: &ExportSettings,
     output_path: &Path,
@@ -153,7 +153,7 @@ pub fn export_gif(
 ///
 /// Returns `AppError::Export` if ffmpeg is not on PATH or exits non-zero.
 pub fn export_video(
-    gif: &mut GifData,
+    gif: &mut dyn FrameSource,
     layers: &[Layer],
     settings: &ExportSettings,
     output_path: &Path,

@@ -1,12 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GifMetadata, LayerInfo, LayerUpdate, ExportSettings, Stroke } from './types';
 
+export async function openFile(path: string): Promise<GifMetadata> {
+  return invoke('open_file', { path });
+}
+
 export async function openGif(path: string): Promise<GifMetadata> {
   return invoke('open_gif', { path });
 }
 
-export async function getFrame(index: number): Promise<string> {
-  return invoke('get_frame', { index });
+export async function getFrame(frameIndex: number): Promise<string> {
+  return invoke('get_frame', { frameIndex });
 }
 
 export async function addImageLayer(path: string): Promise<LayerInfo> {
