@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use gif_editor_lib::gif_decoder::GifData;
 use gif_editor_lib::export::{ExportFormat, ExportSettings, export_gif};
+use gif_editor_lib::layer::{ImageLayer, Layer, TextLayer};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("test.gif")
@@ -45,4 +46,42 @@ fn export_gif_with_resize() {
     export_gif(&mut gif, &[], &settings, &output_path, |_| {}).unwrap();
     let result = GifData::open(&output_path).unwrap();
     assert_eq!(result.dimensions(), (20, 20));
+}
+
+#[test]
+fn export_gif_with_image_and_text_layers() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+
+    // Create a small overlay image
+    let overlay = image::RgbaImage::from_pixel(5, 5, image::Rgba([0, 255, 0, 200]));
+    let mut img_layer = ImageLayer::new("green-box".into(), 5, 5);
+    img_layer.image_data = Some(overlay);
+    img_layer.position = (2.0, 2.0);
+    img_layer.frame_range = (0, 2);
+
+    let mut text_layer = TextLayer::new("Hi".into());
+    text_layer.position = (0.0, 0.0);
+    text_layer.frame_range = (0, 2);
+
+    let layers = vec![
+        Layer::Image(img_layer),
+        Layer::Text(text_layer),
+    ];
+
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+    };
+
+    export_gif(&mut gif, &layers, &settings, &output_path, |_| {}).unwrap();
+
+    // Verify output is a valid GIF with correct frame count and dimensions
+    let result = GifData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 3);
+    assert_eq!(result.dimensions(), (10, 10));
 }
