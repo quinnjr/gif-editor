@@ -3,6 +3,7 @@
   import Toast from '$lib/components/Toast.svelte';
   import Canvas from '$lib/components/Canvas.svelte';
   import LayerPanel from '$lib/components/LayerPanel.svelte';
+  import Timeline from '$lib/components/Timeline.svelte';
 
   let toastMessage = $state('');
   let toastType = $state<'error' | 'success'>('error');
@@ -29,7 +30,7 @@
 
   <!-- Timeline -->
   <div class="h-24 border-t border-zinc-700 bg-zinc-800">
-    <p class="p-4 text-sm text-zinc-400">Timeline</p>
+    <Timeline />
   </div>
 </div>
 
