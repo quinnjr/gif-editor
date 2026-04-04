@@ -4,6 +4,9 @@
 // entry point is kept minimal; this lib is also the compilation unit
 // used on mobile targets.
 
+pub mod error;
+pub mod layer;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
