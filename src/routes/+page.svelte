@@ -2,6 +2,7 @@
   import Toolbar from '$lib/components/Toolbar.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import Canvas from '$lib/components/Canvas.svelte';
+  import LayerPanel from '$lib/components/LayerPanel.svelte';
 
   let toastMessage = $state('');
   let toastType = $state<'error' | 'success'>('error');
@@ -22,7 +23,7 @@
     </div>
     <!-- Layer panel -->
     <div class="w-64 border-l border-zinc-700 bg-zinc-800">
-      <p class="p-4 text-sm text-zinc-400">Layers</p>
+      <LayerPanel />
     </div>
   </div>
 
