@@ -1,6 +1,7 @@
 <script lang="ts">
   import Toolbar from '$lib/components/Toolbar.svelte';
   import Toast from '$lib/components/Toast.svelte';
+  import Canvas from '$lib/components/Canvas.svelte';
 
   let toastMessage = $state('');
   let toastType = $state<'error' | 'success'>('error');
@@ -16,8 +17,8 @@
 
   <div class="flex flex-1 overflow-hidden">
     <!-- Canvas area -->
-    <div class="flex-1 flex items-center justify-center bg-zinc-950">
-      <p class="text-zinc-500">Open a GIF to get started</p>
+    <div class="flex-1 flex items-center justify-center bg-zinc-950 overflow-hidden p-4">
+      <Canvas />
     </div>
     <!-- Layer panel -->
     <div class="w-64 border-l border-zinc-700 bg-zinc-800">
