@@ -73,7 +73,6 @@
   }
 
   function findLayerAtPoint(x: number, y: number): LayerInfo | null {
-    // Test in reverse order so top-most layer wins
     const frame = ui.currentFrame;
     for (let i = project.layers.length - 1; i >= 0; i--) {
       const layer = project.layers[i];
@@ -81,18 +80,28 @@
       const [start, end] = layer.frame_range;
       if (frame < start || frame > end) continue;
 
-      const [lx, ly] = layer.position;
+      const [tx, ty] = layer.position;
+      const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
+      // Inverse of [[sx, kx], [ky, sy]]
+      const det = sx * sy - kx * ky;
+      if (Math.abs(det) < 1e-9) continue;
+
+      const localX = (sy * (x - tx) - kx * (y - ty)) / det;
+      const localY = (-ky * (x - tx) + sx * (y - ty)) / det;
+
+      let w: number, h: number;
       if (layer.layer_type === 'image') {
-        const w = (layer.source_width ?? 0) * layer.scale;
-        const h = (layer.source_height ?? 0) * layer.scale;
-        if (x >= lx && x <= lx + w && y >= ly && y <= ly + h) return layer;
-      } else if (layer.layer_type === 'text') {
-        const fontSize = (layer.font_size ?? 48) * layer.scale;
-        // Rough estimate: character width ~0.6 * fontSize
-        const estW = (layer.text?.length ?? 1) * fontSize * 0.6;
-        const estH = fontSize;
-        if (x >= lx && x <= lx + estW && y >= ly && y <= ly + estH) return layer;
+        w = layer.source_width ?? 0;
+        h = layer.source_height ?? 0;
+      } else {
+        const fontSize = layer.font_size ?? 48;
+        w = (layer.text?.length ?? 1) * fontSize * 0.6;
+        h = fontSize;
+      }
+
+      if (localX >= 0 && localX <= w && localY >= 0 && localY <= h) {
+        return layer;
       }
     }
     return null;

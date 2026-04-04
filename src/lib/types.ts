@@ -15,7 +15,10 @@ export interface LayerInfo {
   name: string;
   layer_type: 'image' | 'text';
   position: [number, number];
-  scale: number;
+  scale_x: number;
+  scale_y: number;
+  skew_x: number;
+  skew_y: number;
   opacity: number;
   frame_range: [number, number];
   visible: boolean;
@@ -32,7 +35,10 @@ export interface LayerInfo {
 export interface LayerUpdate {
   name?: string;
   position?: [number, number];
-  scale?: number;
+  scale_x?: number;
+  scale_y?: number;
+  skew_x?: number;
+  skew_y?: number;
   opacity?: number;
   frame_range?: [number, number];
   visible?: boolean;
