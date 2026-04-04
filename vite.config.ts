@@ -8,7 +8,7 @@ export default defineConfig({
   // Prevent vite from obscuring Rust compiler errors
   clearScreen: false,
   server: {
-    // Tauri expects a fixed port; fail if it's not available
+    port: 5173,
     strictPort: true
   }
 });

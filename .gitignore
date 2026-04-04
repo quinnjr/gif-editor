@@ -35,3 +35,6 @@ Thumbs.db
 
 # Claude Code local configuration
 .claude/settings.local.json
+
+# Plan and design docs (local-only working references)
+docs/superpowers/
