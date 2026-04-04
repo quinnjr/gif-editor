@@ -2,8 +2,10 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { project } from '$lib/stores/project.svelte';
   import { ui } from '$lib/stores/ui.svelte';
+  import ExportDialog from './ExportDialog.svelte';
 
   let { onerror }: { onerror: (msg: string) => void } = $props();
+  let showExport = $state(false);
 
   async function handleOpenGif() {
     const path = await open({
@@ -60,8 +62,10 @@
       disabled={!project.isOpen} class="accent-blue-500" />
     Preview Export
   </label>
-  <button disabled={!project.isOpen}
+  <button onclick={() => (showExport = true)} disabled={!project.isOpen}
     class="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-40">
     Export
   </button>
 </div>
+
+<ExportDialog open={showExport} onclose={() => (showExport = false)} />
