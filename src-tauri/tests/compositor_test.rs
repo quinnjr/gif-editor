@@ -73,6 +73,53 @@ fn composite_image_with_half_opacity() {
 }
 
 #[test]
+fn composite_image_with_scale_x() {
+    let base = RgbaImage::from_pixel(20, 20, Rgba([255, 0, 0, 255]));
+    let overlay = RgbaImage::from_pixel(4, 4, Rgba([0, 0, 255, 255]));
+    let mut layer = ImageLayer::new("blue".into(), 4, 4);
+    layer.image_data = Some(overlay);
+    layer.position = (0.0, 0.0);
+    layer.scale_x = 2.0;
+    layer.scale_y = 1.0;
+    layer.frame_range = (0, 0);
+    let layers = vec![Layer::Image(layer)];
+    let result = composite_frame(&base, &layers, 0);
+    assert_eq!(*result.get_pixel(7, 2), Rgba([0, 0, 255, 255]));
+    assert_eq!(*result.get_pixel(9, 2), Rgba([255, 0, 0, 255]));
+}
+
+#[test]
+fn composite_identity_transform_matches_original() {
+    let base = red_10x10();
+    let overlay = blue_5x5();
+    let mut layer = ImageLayer::new("blue".into(), 5, 5);
+    layer.image_data = Some(overlay);
+    layer.position = (2.0, 3.0);
+    layer.frame_range = (0, 0);
+    let layers = vec![Layer::Image(layer)];
+    let result = composite_frame(&base, &layers, 0);
+    assert_eq!(*result.get_pixel(2, 3), Rgba([0, 0, 255, 255]));
+    assert_eq!(*result.get_pixel(0, 0), Rgba([255, 0, 0, 255]));
+    assert_eq!(*result.get_pixel(6, 7), Rgba([0, 0, 255, 255]));
+    assert_eq!(*result.get_pixel(7, 8), Rgba([255, 0, 0, 255]));
+}
+
+#[test]
+fn composite_image_with_skew_x() {
+    let base = RgbaImage::from_pixel(30, 30, Rgba([255, 0, 0, 255]));
+    let overlay = RgbaImage::from_pixel(10, 10, Rgba([0, 0, 255, 255]));
+    let mut layer = ImageLayer::new("blue".into(), 10, 10);
+    layer.image_data = Some(overlay);
+    layer.position = (5.0, 5.0);
+    layer.skew_x = 0.5;
+    layer.frame_range = (0, 0);
+    let layers = vec![Layer::Image(layer)];
+    let result = composite_frame(&base, &layers, 0);
+    assert_eq!(*result.get_pixel(5, 5), Rgba([0, 0, 255, 255]));
+    assert_eq!(*result.get_pixel(0, 0), Rgba([255, 0, 0, 255]));
+}
+
+#[test]
 fn composite_text_layer_adds_visible_pixels() {
     let base_large = RgbaImage::from_pixel(200, 200, Rgba([255, 0, 0, 255]));
     let mut layer = TextLayer::new("Hi".to_string());

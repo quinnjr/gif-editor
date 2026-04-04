@@ -1,4 +1,4 @@
-use image::{imageops, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage};
 
 use crate::layer::Layer;
 
@@ -8,12 +8,10 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
     let mut target = base.clone();
 
     for layer in layers {
-        // Skip invisible layers.
         if !layer.visible() {
             continue;
         }
 
-        // frame_range is inclusive on both ends; (0,0) means frame 0 only.
         let (start, end) = layer.frame_range();
         if frame_index < start || frame_index > end {
             continue;
@@ -25,36 +23,51 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     continue;
                 };
 
-                // Scale the source image if needed.
-                // TODO(Task 4): replace with full affine warp using scale_x/scale_y/skew_x/skew_y.
-                let scaled: RgbaImage = if (img_layer.scale_x - 1.0).abs() > f64::EPSILON
-                    || (img_layer.scale_y - 1.0).abs() > f64::EPSILON
-                {
-                    let new_w = ((src.width() as f64) * img_layer.scale_x).round() as u32;
-                    let new_h = ((src.height() as f64) * img_layer.scale_y).round() as u32;
-                    if new_w == 0 || new_h == 0 {
-                        continue;
-                    }
-                    imageops::resize(src, new_w, new_h, imageops::FilterType::Lanczos3)
-                } else {
-                    src.clone()
-                };
+                let sx = img_layer.scale_x;
+                let sy = img_layer.scale_y;
+                let kx = img_layer.skew_x;
+                let ky = img_layer.skew_y;
 
-                composite_rgba_buffer(
-                    &mut target,
-                    &scaled,
-                    img_layer.position,
-                    img_layer.opacity,
-                );
+                if is_identity(sx, sy, kx, ky) {
+                    composite_rgba_buffer(
+                        &mut target,
+                        src,
+                        img_layer.position,
+                        img_layer.opacity,
+                    );
+                } else {
+                    affine_composite(
+                        &mut target,
+                        src,
+                        img_layer.position,
+                        sx, sy, kx, ky,
+                        img_layer.opacity,
+                    );
+                }
             }
             Layer::Text(text_layer) => {
                 if let Ok(text_img) = crate::text_renderer::render_text(text_layer) {
-                    composite_rgba_buffer(
-                        &mut target,
-                        &text_img,
-                        text_layer.position,
-                        text_layer.opacity,
-                    );
+                    let sx = text_layer.scale_x;
+                    let sy = text_layer.scale_y;
+                    let kx = text_layer.skew_x;
+                    let ky = text_layer.skew_y;
+
+                    if is_identity(sx, sy, kx, ky) {
+                        composite_rgba_buffer(
+                            &mut target,
+                            &text_img,
+                            text_layer.position,
+                            text_layer.opacity,
+                        );
+                    } else {
+                        affine_composite(
+                            &mut target,
+                            &text_img,
+                            text_layer.position,
+                            sx, sy, kx, ky,
+                            text_layer.opacity,
+                        );
+                    }
                 }
             }
         }
@@ -63,11 +76,134 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
     target
 }
 
-/// Blend `buffer` onto `target` at `position` with the given `opacity`
-/// (0.0 = fully transparent, 1.0 = fully opaque).
+/// Returns `true` when the 2×2 transform portion is the identity matrix.
+fn is_identity(sx: f64, sy: f64, kx: f64, ky: f64) -> bool {
+    (sx - 1.0).abs() < f64::EPSILON
+        && (sy - 1.0).abs() < f64::EPSILON
+        && kx.abs() < f64::EPSILON
+        && ky.abs() < f64::EPSILON
+}
+
+/// Composite `src` onto `target` using the affine transform defined by
+/// `(scale_x, scale_y, skew_x, skew_y)` with translation `position`.
 ///
-/// This is also the entry point used by the text renderer (Task 6) to
-/// blend rasterised glyph bitmaps onto a frame.
+/// The matrix maps source → destination:
+///
+/// ```text
+///   dst_x = scale_x * src_x + skew_x * src_y + tx
+///   dst_y = skew_y  * src_x + scale_y * src_y + ty
+/// ```
+///
+/// We iterate over the output bounding box and use the inverse matrix to
+/// sample source pixels with bilinear interpolation.
+fn affine_composite(
+    target: &mut RgbaImage,
+    src: &RgbaImage,
+    position: (f64, f64),
+    sx: f64,
+    sy: f64,
+    kx: f64,
+    ky: f64,
+    opacity: f64,
+) {
+    let (tw, th) = (target.width() as i64, target.height() as i64);
+    let (sw, sh) = (src.width() as f64, src.height() as f64);
+    let (tx, ty) = position;
+
+    let corners = [
+        (0.0, 0.0),
+        (sw, 0.0),
+        (0.0, sh),
+        (sw, sh),
+    ];
+
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+
+    for (cx, cy) in &corners {
+        let dx = sx * cx + kx * cy + tx;
+        let dy = ky * cx + sy * cy + ty;
+        min_x = min_x.min(dx);
+        min_y = min_y.min(dy);
+        max_x = max_x.max(dx);
+        max_y = max_y.max(dy);
+    }
+
+    let x0 = (min_x.floor() as i64).max(0);
+    let y0 = (min_y.floor() as i64).max(0);
+    let x1 = (max_x.ceil() as i64).min(tw);
+    let y1 = (max_y.ceil() as i64).min(th);
+
+    let det = sx * sy - kx * ky;
+    if det.abs() < 1e-12 {
+        return;
+    }
+    let inv_a = sy / det;
+    let inv_b = -ky / det;
+    let inv_c = -kx / det;
+    let inv_d = sx / det;
+
+    for dst_y in y0..y1 {
+        for dst_x in x0..x1 {
+            let rx = dst_x as f64 - tx;
+            let ry = dst_y as f64 - ty;
+            let src_xf = inv_a * rx + inv_c * ry;
+            let src_yf = inv_b * rx + inv_d * ry;
+
+            if src_xf < -0.5 || src_yf < -0.5 || src_xf > sw - 0.5 || src_yf > sh - 0.5 {
+                continue;
+            }
+
+            let src_pixel = bilinear_sample(src, src_xf, src_yf);
+            if src_pixel[3] == 0 {
+                continue;
+            }
+
+            let dst_pixel = target.get_pixel_mut(dst_x as u32, dst_y as u32);
+            let effective_alpha = (src_pixel[3] as f64 / 255.0) * opacity;
+            *dst_pixel = alpha_blend(dst_pixel, &src_pixel, effective_alpha);
+        }
+    }
+}
+
+/// Bilinear sampling from an RGBA image at fractional coordinates.
+fn bilinear_sample(img: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
+    let (w, h) = (img.width() as f64, img.height() as f64);
+    let x = x.max(0.0).min(w - 1.0);
+    let y = y.max(0.0).min(h - 1.0);
+
+    let x0 = x.floor() as u32;
+    let y0 = y.floor() as u32;
+    let x1 = (x0 + 1).min(img.width() - 1);
+    let y1 = (y0 + 1).min(img.height() - 1);
+
+    let fx = x - x0 as f64;
+    let fy = y - y0 as f64;
+
+    let p00 = img.get_pixel(x0, y0);
+    let p10 = img.get_pixel(x1, y0);
+    let p01 = img.get_pixel(x0, y1);
+    let p11 = img.get_pixel(x1, y1);
+
+    let lerp = |a: u8, b: u8, c: u8, d: u8| -> u8 {
+        let top = a as f64 * (1.0 - fx) + b as f64 * fx;
+        let bot = c as f64 * (1.0 - fx) + d as f64 * fx;
+        let val = top * (1.0 - fy) + bot * fy;
+        val.round() as u8
+    };
+
+    Rgba([
+        lerp(p00[0], p10[0], p01[0], p11[0]),
+        lerp(p00[1], p10[1], p01[1], p11[1]),
+        lerp(p00[2], p10[2], p01[2], p11[2]),
+        lerp(p00[3], p10[3], p01[3], p11[3]),
+    ])
+}
+
+/// Blend `buffer` onto `target` at `position` with the given `opacity`.
+/// Fast path for identity transforms (no scale, no skew).
 pub fn composite_rgba_buffer(
     target: &mut RgbaImage,
     buffer: &RgbaImage,
@@ -82,7 +218,6 @@ pub fn composite_rgba_buffer(
         let tx = off_x + bx as i64;
         let ty = off_y + by as i64;
 
-        // Skip pixels that fall outside the target canvas.
         if tx < 0 || ty < 0 || tx >= tw as i64 || ty >= th as i64 {
             continue;
         }
@@ -94,15 +229,10 @@ pub fn composite_rgba_buffer(
 }
 
 /// Standard "alpha over" composite.
-///
-/// `src_alpha` is the pre-multiplied effective alpha in [0.0, 1.0]; the
-/// destination pixel's own alpha channel is assumed to be 1.0 (fully
-/// opaque base frame).
 fn alpha_blend(dst: &Rgba<u8>, src: &Rgba<u8>, src_alpha: f64) -> Rgba<u8> {
     let inv = 1.0 - src_alpha;
     let r = (src[0] as f64 * src_alpha + dst[0] as f64 * inv).round() as u8;
     let g = (src[1] as f64 * src_alpha + dst[1] as f64 * inv).round() as u8;
     let b = (src[2] as f64 * src_alpha + dst[2] as f64 * inv).round() as u8;
-    // Keep destination alpha (base frames are always opaque).
     Rgba([r, g, b, dst[3]])
 }
