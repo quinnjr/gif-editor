@@ -17,6 +17,19 @@
   let dragOriginX = $state(0);
   let dragOriginY = $state(0);
 
+  // Handle interaction state
+  type HandleType =
+    | 'tl' | 'tr' | 'bl' | 'br'       // corner handles (scale)
+    | 'top' | 'bottom' | 'left' | 'right'; // edge handles (skew)
+  let activeHandle = $state<HandleType | null>(null);
+  let handleLayerId = $state<string | null>(null);
+  let handleStartX = $state(0);
+  let handleStartY = $state(0);
+  let handleOrigScaleX = $state(1);
+  let handleOrigScaleY = $state(1);
+  let handleOrigSkewX = $state(0);
+  let handleOrigSkewY = $state(0);
+
   // Initialise the 2D context once the canvas element is bound
   $effect(() => {
     if (canvas) {
@@ -61,6 +74,9 @@
 
   // --- Hit testing helpers ---
 
+  const HANDLE_SIZE = 8;
+  const HANDLE_GRAB = 12;
+
   function getCanvasCoords(e: PointerEvent): [number, number] {
     if (!canvas) return [0, 0];
     const rect = canvas.getBoundingClientRect();
@@ -70,6 +86,57 @@
       (e.clientX - rect.left) * scaleX,
       (e.clientY - rect.top) * scaleY,
     ];
+  }
+
+  function getTransformedCorners(layer: LayerInfo): [number, number][] {
+    const [tx, ty] = layer.position;
+    const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
+
+    let w: number, h: number;
+    if (layer.layer_type === 'image') {
+      w = layer.source_width ?? 0;
+      h = layer.source_height ?? 0;
+    } else {
+      const fontSize = layer.font_size ?? 48;
+      w = (layer.text?.length ?? 1) * fontSize * 0.6;
+      h = fontSize;
+    }
+
+    return [
+      [tx, ty],
+      [sx * w + tx, ky * w + ty],
+      [kx * h + tx, sy * h + ty],
+      [sx * w + kx * h + tx, ky * w + sy * h + ty],
+    ];
+  }
+
+  function getHandlePositions(layer: LayerInfo): { type: HandleType; x: number; y: number }[] {
+    const [tl, tr, bl, br] = getTransformedCorners(layer);
+    const mid = (a: [number, number], b: [number, number]): [number, number] =>
+      [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+
+    return [
+      { type: 'tl', x: tl[0], y: tl[1] },
+      { type: 'tr', x: tr[0], y: tr[1] },
+      { type: 'bl', x: bl[0], y: bl[1] },
+      { type: 'br', x: br[0], y: br[1] },
+      { type: 'top', x: mid(tl, tr)[0], y: mid(tl, tr)[1] },
+      { type: 'bottom', x: mid(bl, br)[0], y: mid(bl, br)[1] },
+      { type: 'left', x: mid(tl, bl)[0], y: mid(tl, bl)[1] },
+      { type: 'right', x: mid(tr, br)[0], y: mid(tr, br)[1] },
+    ];
+  }
+
+  function findHandleAtPoint(x: number, y: number): { handle: HandleType; layerId: string } | null {
+    const sel = ui.selectedLayerId ? project.layers.find((l) => l.id === ui.selectedLayerId) : null;
+    if (!sel) return null;
+
+    for (const h of getHandlePositions(sel)) {
+      if (Math.abs(x - h.x) <= HANDLE_GRAB && Math.abs(y - h.y) <= HANDLE_GRAB) {
+        return { handle: h.type, layerId: sel.id };
+      }
+    }
+    return null;
   }
 
   function findLayerAtPoint(x: number, y: number): LayerInfo | null {
@@ -111,8 +178,24 @@
 
   function onPointerDown(e: PointerEvent) {
     const [x, y] = getCanvasCoords(e);
-    const hit = findLayerAtPoint(x, y);
 
+    const handleHit = findHandleAtPoint(x, y);
+    if (handleHit) {
+      const layer = project.layers.find((l) => l.id === handleHit.layerId);
+      if (!layer) return;
+      activeHandle = handleHit.handle;
+      handleLayerId = handleHit.layerId;
+      handleStartX = x;
+      handleStartY = y;
+      handleOrigScaleX = layer.scale_x;
+      handleOrigScaleY = layer.scale_y;
+      handleOrigSkewX = layer.skew_x;
+      handleOrigSkewY = layer.skew_y;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
+
+    const hit = findLayerAtPoint(x, y);
     if (hit) {
       ui.selectLayer(hit.id);
       isDragging = true;
@@ -128,6 +211,61 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (activeHandle && handleLayerId) {
+      const [x, y] = getCanvasCoords(e);
+      const layer = project.layers.find((l) => l.id === handleLayerId);
+      if (!layer) return;
+
+      const dx = x - handleStartX;
+      const dy = y - handleStartY;
+
+      let w: number, h: number;
+      if (layer.layer_type === 'image') {
+        w = layer.source_width ?? 1;
+        h = layer.source_height ?? 1;
+      } else {
+        const fontSize = layer.font_size ?? 48;
+        w = (layer.text?.length ?? 1) * fontSize * 0.6;
+        h = fontSize;
+      }
+
+      const isCorner = ['tl', 'tr', 'bl', 'br'].includes(activeHandle);
+      if (isCorner) {
+        const rawSx = handleOrigScaleX + dx / w;
+        const rawSy = handleOrigScaleY + dy / h;
+
+        if (e.shiftKey) {
+          project.layers = project.layers.map((l) =>
+            l.id === handleLayerId
+              ? { ...l, scale_x: rawSx, scale_y: rawSy }
+              : l,
+          );
+        } else {
+          const origDiag = Math.sqrt(handleOrigScaleX ** 2 + handleOrigScaleY ** 2);
+          const newDiag = Math.sqrt(rawSx ** 2 + rawSy ** 2);
+          const ratio = origDiag > 0 ? newDiag / origDiag : 1;
+          project.layers = project.layers.map((l) =>
+            l.id === handleLayerId
+              ? { ...l, scale_x: handleOrigScaleX * ratio, scale_y: handleOrigScaleY * ratio }
+              : l,
+          );
+        }
+      } else {
+        if (activeHandle === 'top' || activeHandle === 'bottom') {
+          const newSkewX = handleOrigSkewX + dx / h;
+          project.layers = project.layers.map((l) =>
+            l.id === handleLayerId ? { ...l, skew_x: newSkewX } : l,
+          );
+        } else {
+          const newSkewY = handleOrigSkewY + dy / w;
+          project.layers = project.layers.map((l) =>
+            l.id === handleLayerId ? { ...l, skew_y: newSkewY } : l,
+          );
+        }
+      }
+      return;
+    }
+
     if (!isDragging || dragLayerId === null) return;
 
     const [x, y] = getCanvasCoords(e);
@@ -136,7 +274,6 @@
     const newX = dragOriginX + dx;
     const newY = dragOriginY + dy;
 
-    // Update the layer position locally in the store for instant feedback
     project.layers = project.layers.map((l) =>
       l.id === dragLayerId
         ? { ...l, position: [newX, newY] as [number, number] }
@@ -145,11 +282,25 @@
   }
 
   async function onPointerUp(_e: PointerEvent) {
+    if (activeHandle && handleLayerId) {
+      const layer = project.layers.find((l) => l.id === handleLayerId);
+      if (layer) {
+        await project.updateLayer(handleLayerId, {
+          scale_x: layer.scale_x,
+          scale_y: layer.scale_y,
+          skew_x: layer.skew_x,
+          skew_y: layer.skew_y,
+        });
+      }
+      activeHandle = null;
+      handleLayerId = null;
+      return;
+    }
+
     if (!isDragging || dragLayerId === null) return;
 
     const layer = project.layers.find((l) => l.id === dragLayerId);
     if (layer) {
-      // Sync final position to backend
       await project.updateLayer(dragLayerId, { position: layer.position });
     }
 
@@ -159,15 +310,43 @@
 </script>
 
 {#if project.metadata}
-  <canvas
-    bind:this={canvas}
-    width={project.metadata.width}
-    height={project.metadata.height}
-    class="max-h-full max-w-full cursor-crosshair"
-    onpointerdown={onPointerDown}
-    onpointermove={onPointerMove}
-    onpointerup={onPointerUp}
-  ></canvas>
+  <div class="relative max-h-full max-w-full">
+    <canvas
+      bind:this={canvas}
+      width={project.metadata.width}
+      height={project.metadata.height}
+      class="max-h-full max-w-full cursor-crosshair"
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+    ></canvas>
+
+    {#if ui.selectedLayerId}
+      {@const sel = project.layers.find((l) => l.id === ui.selectedLayerId)}
+      {#if sel && canvas}
+        {@const corners = getTransformedCorners(sel)}
+        {@const handles = getHandlePositions(sel)}
+        {@const rect = canvas.getBoundingClientRect()}
+        {@const ratioX = rect.width / (project.metadata?.width ?? 1)}
+        {@const ratioY = rect.height / (project.metadata?.height ?? 1)}
+        <svg class="pointer-events-none absolute left-0 top-0"
+          width={rect.width} height={rect.height}
+          viewBox="0 0 {rect.width} {rect.height}">
+          <polygon
+            points="{[corners[0], corners[1], corners[3], corners[2]].map(([cx, cy]) => `${cx * ratioX},${cy * ratioY}`).join(' ')}"
+            fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 2" />
+          {#each handles as h}
+            <rect
+              x={h.x * ratioX - HANDLE_SIZE / 2}
+              y={h.y * ratioY - HANDLE_SIZE / 2}
+              width={HANDLE_SIZE} height={HANDLE_SIZE}
+              fill="#60a5fa" stroke="#1e3a5f" stroke-width="1"
+              class="pointer-events-auto cursor-pointer" />
+          {/each}
+        </svg>
+      {/if}
+    {/if}
+  </div>
 {:else}
   <p class="text-zinc-500">Open a GIF to get started</p>
 {/if}
