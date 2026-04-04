@@ -6,8 +6,10 @@
 
 pub mod compositor;
 pub mod error;
+pub mod fonts;
 pub mod gif_decoder;
 pub mod layer;
+pub mod text_renderer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
