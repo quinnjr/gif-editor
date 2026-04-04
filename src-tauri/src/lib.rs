@@ -5,6 +5,7 @@
 // used on mobile targets.
 
 pub mod error;
+pub mod gif_decoder;
 pub mod layer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
