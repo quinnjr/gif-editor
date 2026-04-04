@@ -1,0 +1,98 @@
+<script lang="ts">
+  import { save } from '@tauri-apps/plugin-dialog';
+  import { listen } from '@tauri-apps/api/event';
+  import * as cmd from '$lib/commands';
+  import type { ExportFormat } from '$lib/types';
+
+  let { open = false, onclose }: { open: boolean; onclose: () => void } = $props();
+
+  let format = $state<ExportFormat>('Gif');
+  let quality = $state(80);
+  let exporting = $state(false);
+  let progress = $state(0);
+  let ffmpegAvailable = $state(false);
+  let error = $state('');
+
+  $effect(() => {
+    if (open) {
+      cmd.checkFfmpeg().then((available) => (ffmpegAvailable = available));
+    }
+  });
+
+  const formatExtensions: Record<ExportFormat, string> = {
+    Gif: 'gif', Mp4: 'mp4', WebM: 'webm',
+  };
+
+  async function handleExport() {
+    error = '';
+    const ext = formatExtensions[format];
+    const path = await save({
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+      defaultPath: `output.${ext}`,
+    });
+    if (!path) return;
+
+    exporting = true;
+    progress = 0;
+
+    const unlisten = await listen<number>('export-progress', (event) => {
+      progress = event.payload;
+    });
+
+    try {
+      await cmd.exportProject({ format, quality, resize: null }, path);
+      onclose();
+    } catch (e) {
+      error = `Export failed: ${e}`;
+    } finally {
+      exporting = false;
+      unlisten();
+    }
+  }
+</script>
+
+{#if open}
+  <!-- Backdrop -->
+  <div class="fixed inset-0 z-40 bg-black/50" onclick={onclose}></div>
+
+  <!-- Dialog -->
+  <div class="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-zinc-800 p-6 shadow-xl">
+    <h2 class="mb-4 text-lg font-semibold">Export</h2>
+
+    <div class="space-y-4">
+      <label class="block text-sm">
+        Format
+        <select bind:value={format} class="mt-1 block w-full rounded bg-zinc-700 px-3 py-2 text-sm">
+          <option value="Gif">GIF</option>
+          <option value="Mp4" disabled={!ffmpegAvailable}>MP4 {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
+          <option value="WebM" disabled={!ffmpegAvailable}>WebM {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
+        </select>
+      </label>
+
+      <label class="block text-sm">
+        Quality: {quality}
+        <input type="range" min="1" max="100" bind:value={quality} class="mt-1 block w-full accent-blue-500" />
+      </label>
+
+      {#if exporting}
+        <div class="h-2 rounded-full bg-zinc-700">
+          <div class="h-full rounded-full bg-blue-500 transition-all" style="width: {Math.round(progress * 100)}%"></div>
+        </div>
+        <p class="text-center text-xs text-zinc-400">{Math.round(progress * 100)}%</p>
+      {/if}
+
+      {#if error}
+        <p class="text-sm text-red-400">{error}</p>
+      {/if}
+
+      <div class="flex gap-2">
+        <button onclick={onclose} disabled={exporting}
+          class="flex-1 rounded bg-zinc-600 px-3 py-2 text-sm hover:bg-zinc-500 disabled:opacity-40">Cancel</button>
+        <button onclick={handleExport} disabled={exporting}
+          class="flex-1 rounded bg-green-600 px-3 py-2 text-sm font-medium hover:bg-green-500 disabled:opacity-40">
+          {exporting ? 'Exporting...' : 'Export'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
