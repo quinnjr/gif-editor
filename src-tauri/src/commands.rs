@@ -7,10 +7,11 @@
 
 use std::path::Path;
 
-use tauri::State;
+use tauri::{Emitter, State};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::export::{self, ExportSettings};
 use crate::layer::Stroke;
 use crate::project::{GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
 
@@ -124,4 +125,44 @@ pub fn get_layers(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppE
 #[tauri::command]
 pub fn get_system_fonts() -> Vec<String> {
     crate::fonts::list_available_fonts()
+}
+
+/// Export the current project to a file.
+///
+/// The export format is taken from `settings.format`.  Progress events are
+/// emitted on the "export-progress" channel as a plain frame count so the
+/// frontend can drive a progress bar without polling.
+#[tauri::command]
+pub fn export_project(
+    state: State<'_, ProjectState>,
+    app: tauri::AppHandle,
+    settings: ExportSettings,
+    output_path: String,
+) -> Result<(), AppError> {
+    let mut guard = state.lock().unwrap();
+    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+
+    let out = std::path::Path::new(&output_path);
+    let layers = project.layers.clone();
+
+    let on_progress = |frames_done: usize| {
+        let _ = app.emit("export-progress", frames_done);
+    };
+
+    match settings.format {
+        export::ExportFormat::Gif => {
+            export::export_gif(&mut project.gif, &layers, &settings, out, on_progress)
+        }
+        export::ExportFormat::Mp4 | export::ExportFormat::WebM => {
+            export::export_video(&mut project.gif, &layers, &settings, out, on_progress)
+        }
+    }
+}
+
+/// Return `true` if ffmpeg is available on PATH.
+///
+/// The frontend uses this to decide whether to offer video export options.
+#[tauri::command]
+pub fn check_ffmpeg() -> bool {
+    export::ffmpeg_available()
 }

@@ -6,6 +6,7 @@
 
 pub mod compositor;
 pub mod error;
+pub mod export;
 pub mod fonts;
 pub mod gif_decoder;
 pub mod layer;
@@ -38,6 +39,8 @@ pub fn run() {
             commands::render_composite,
             commands::get_layers,
             commands::get_system_fonts,
+            commands::export_project,
+            commands::check_ffmpeg,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
