@@ -224,6 +224,14 @@ pub fn export_video(
         .into_owned();
 
     let output_str = output_path.to_string_lossy().into_owned();
+    let source_str = gif.source_path().to_string_lossy().into_owned();
+
+    // Audio codec matched to container: AAC for MP4, Opus for WebM.
+    let audio_codec = match settings.format {
+        ExportFormat::Mp4 => "aac",
+        ExportFormat::WebM => "libopus",
+        ExportFormat::Gif => unreachable!(),
+    };
 
     let mut cmd = Command::new("ffmpeg");
     cmd.args([
@@ -231,13 +239,20 @@ pub fn export_video(
         "-framerate",
         &format!("{fps:.3}"),
         "-i",
-        &input_pattern,
+        &input_pattern,       // input 0: composited video frames
+        "-i",
+        &source_str,          // input 1: original file (for audio)
+        "-map", "0:v",        // video from the PNG sequence
+        "-map", "1:a?",       // audio from original (? = optional)
         "-c:v",
         codec,
         "-crf",
         &crf.to_string(),
         "-pix_fmt",
         "yuv420p",
+        "-c:a",
+        audio_codec,
+        "-shortest",          // stop when the shorter stream ends
         &output_str,
     ]);
 
