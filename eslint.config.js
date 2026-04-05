@@ -29,6 +29,8 @@ export default ts.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       // Svelte components often need this
       'no-undef': 'off',
+      // SvelteSet needs $state wrapping when reassigned, which conflicts with this rule
+      'svelte/no-unnecessary-state-wrap': 'off',
     },
   },
   {

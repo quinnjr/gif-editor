@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "gif-editor",
   "version": "0.1.0",
-  "identifier": "dev.josephquinn.gif-editor",
+  "identifier": "dev.quinnjr.gif-editor",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",

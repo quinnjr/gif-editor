@@ -81,10 +81,10 @@
   </div>
 
   {#if selected}
+    {@const interp = layer.keyframes.length > 0
+      ? interpolateKeyframes(layer.keyframes, ui.currentFrame)
+      : null}
     <div class="mt-2 space-y-2">
-      {@const interp = layer.keyframes.length > 0
-        ? interpolateKeyframes(layer.keyframes, ui.currentFrame)
-        : null}
       <label class="flex items-center gap-2 text-xs text-zinc-300">
         Opacity
         <input type="range" min="0" max="1" step="0.05" value={interp ? interp.opacity : layer.opacity}

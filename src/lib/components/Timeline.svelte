@@ -11,7 +11,7 @@
   let dragging = $state<'start' | 'end' | null>(null);
   let stripEl = $state<HTMLDivElement | null>(null);
 
-  let selectedFrames: SvelteSet<number> = new SvelteSet();
+  let selectedFrames = $state(new SvelteSet<number>());
   let lastSelectedFrame = $state<number | null>(null);
 
   function toggleFrameSelection(index: number, e: MouseEvent) {

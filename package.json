@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
+    "tauri:build": "NO_STRIP=true tauri build",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
   },
