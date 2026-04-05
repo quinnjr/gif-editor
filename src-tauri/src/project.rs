@@ -165,7 +165,6 @@ impl Project {
             }
         };
 
-        let (width, height) = source.dimensions();
         let temp_dir = tempfile::TempDir::new()?;
         let project = Project {
             source,
@@ -175,6 +174,11 @@ impl Project {
         };
         let metadata = project.visible_metadata();
         Ok((project, metadata))
+    }
+
+    /// Downcast the source to `ImageSource` if it is one.
+    fn source_as_image_mut(&mut self) -> Option<&mut ImageSource> {
+        self.source.as_any_mut().downcast_mut::<ImageSource>()
     }
 
     // -----------------------------------------------------------------------
@@ -189,7 +193,11 @@ impl Project {
         let all_delays = self.source.delays();
         (0..self.source.frame_count())
             .filter(|i| !self.excluded_frames.contains(i))
-            .map(|i| all_delays[i])
+            .map(|i| {
+                // ImageSource may return a 1-element delay slice for an
+                // expanded timeline — all virtual frames share the same delay.
+                all_delays[i % all_delays.len()]
+            })
             .collect()
     }
 
@@ -417,26 +425,74 @@ impl Project {
 
     /// Load an image from `path` and create a new `ImageLayer` covering all
     /// frames.
-    pub fn add_image_layer(&mut self, path: &str) -> Result<LayerInfo, AppError> {
-        let img = image::open(path)
-            .map_err(|e| AppError::ImageLoad(e.to_string()))?
-            .to_rgba8();
+    pub fn add_image_layer(&mut self, path: &str) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
+        let ext = Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
 
-        let (w, h) = img.dimensions();
-        let frame_count = self.visible_frame_count();
         let file_name = Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "image".to_string());
 
-        let mut layer = ImageLayer::new(file_name, w, h);
-        layer.image_data = Some(img);
+        let mut metadata_changed = false;
+
+        let mut layer = if ext == "gif" {
+            // Decode all GIF frames for animated overlay.
+            let mut gif = GifData::open(Path::new(path))?;
+            let (w, h) = gif.dimensions();
+            let gif_frame_count = gif.frame_count();
+            let mut frames = Vec::with_capacity(gif_frame_count);
+            for i in 0..gif_frame_count {
+                frames.push(gif.get_frame(i)?);
+            }
+
+            // If the base source is a static image and the GIF has more
+            // frames, expand the project timeline to fit the animation.
+            if gif_frame_count > self.visible_frame_count() {
+                let avg_delay = if gif.delays().is_empty() {
+                    10
+                } else {
+                    (gif.delays().iter().map(|&d| d as u32).sum::<u32>()
+                        / gif.delays().len() as u32) as u16
+                };
+                if let Some(img_src) = self.source_as_image_mut() {
+                    img_src.expand_timeline(gif_frame_count, avg_delay);
+                    metadata_changed = true;
+                }
+            }
+
+            let mut l = ImageLayer::new(file_name, w, h);
+            l.image_data = frames.first().cloned();
+            l.frames = frames;
+            l
+        } else {
+            // Static image.
+            let img = image::open(path)
+                .map_err(|e| AppError::ImageLoad(e.to_string()))?
+                .to_rgba8();
+            let (w, h) = img.dimensions();
+            let mut l = ImageLayer::new(file_name, w, h);
+            l.image_data = Some(img);
+            l
+        };
+
+        let frame_count = self.visible_frame_count();
         layer.source_path = Some(path.to_string());
         layer.frame_range = (0, frame_count.saturating_sub(1));
 
         let info = LayerInfo::from(&Layer::Image(layer.clone()));
         self.layers.push(Layer::Image(layer));
-        Ok(info)
+
+        let new_meta = if metadata_changed {
+            Some(self.visible_metadata())
+        } else {
+            None
+        };
+
+        Ok((info, new_meta))
     }
 
     /// Create a new `TextLayer` covering all frames.

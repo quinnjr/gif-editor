@@ -19,7 +19,14 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
 
         match layer {
             Layer::Image(img_layer) => {
-                let Some(ref src) = img_layer.image_data else {
+                // For animated GIF overlays, pick the frame that
+                // corresponds to the current project frame (looping).
+                let src: &RgbaImage = if !img_layer.frames.is_empty() {
+                    let offset = frame_index.saturating_sub(start);
+                    &img_layer.frames[offset % img_layer.frames.len()]
+                } else if let Some(ref img) = img_layer.image_data {
+                    img
+                } else {
                     continue;
                 };
 

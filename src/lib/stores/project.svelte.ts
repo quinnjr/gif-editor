@@ -24,8 +24,13 @@ class ProjectStore {
   }
 
   async addImageLayer(path: string) {
-    const layer = await cmd.addImageLayer(path);
+    const [layer, newMeta] = await cmd.addImageLayer(path);
     this.layers = [...this.layers, layer];
+    // When an animated GIF is added to a static image, the timeline expands.
+    if (newMeta) {
+      this.metadata = newMeta;
+      this.framePaths = new Map();
+    }
     return layer;
   }
 

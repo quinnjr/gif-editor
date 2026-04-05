@@ -199,6 +199,10 @@ impl FrameSource for VideoData {
         self.frame_cache.put(index, img.clone());
         Ok(img)
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 /// Parse an ffprobe rational frame rate like "30/1" or "24000/1001" into an

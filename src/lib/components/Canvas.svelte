@@ -310,15 +310,18 @@
 </script>
 
 {#if project.metadata}
-  <div class="relative max-h-full max-w-full">
+  <!-- Pointer events on the wrapper so they fire for both the canvas and
+       the SVG handle overlay (handles have pointer-events-auto). -->
+  <div class="relative max-h-full max-w-full cursor-crosshair"
+    role="application"
+    onpointerdown={onPointerDown}
+    onpointermove={onPointerMove}
+    onpointerup={onPointerUp}>
     <canvas
       bind:this={canvas}
       width={project.metadata.width}
       height={project.metadata.height}
-      class="max-h-full max-w-full cursor-crosshair"
-      onpointerdown={onPointerDown}
-      onpointermove={onPointerMove}
-      onpointerup={onPointerUp}
+      class="max-h-full max-w-full"
     ></canvas>
 
     {#if ui.selectedLayerId}
@@ -335,7 +338,7 @@
           <polygon
             points="{[corners[0], corners[1], corners[3], corners[2]].map(([cx, cy]) => `${cx * ratioX},${cy * ratioY}`).join(' ')}"
             fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 2" />
-          {#each handles as h}
+          {#each handles as h (h.type)}
             <rect
               x={h.x * ratioX - HANDLE_SIZE / 2}
               y={h.y * ratioY - HANDLE_SIZE / 2}

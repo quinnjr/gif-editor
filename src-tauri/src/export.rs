@@ -61,7 +61,6 @@ pub fn export_gif(
     delays: &[u16],
     on_progress: impl Fn(usize),
 ) -> Result<(), AppError> {
-    let frame_count = frame_indices.len();
     let (src_w, src_h) = source.dimensions();
     let (out_w, out_h) = settings
         .resize

@@ -13,7 +13,7 @@ export async function getFrame(frameIndex: number): Promise<string> {
   return invoke('get_frame', { frameIndex });
 }
 
-export async function addImageLayer(path: string): Promise<LayerInfo> {
+export async function addImageLayer(path: string): Promise<[LayerInfo, GifMetadata | null]> {
   return invoke('add_image_layer', { path });
 }
 

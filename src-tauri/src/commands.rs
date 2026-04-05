@@ -50,12 +50,17 @@ pub async fn get_frame(
     project.get_frame_png_path(frame_index)
 }
 
-/// Load an image from `path` and add it as a new layer on top of the stack.
+/// Load an image or animated GIF as a new layer.
+///
+/// When an animated GIF is added on top of a static image source, the
+/// project timeline expands to fit the GIF frames.  The returned tuple
+/// contains the new layer info and optionally refreshed metadata (if the
+/// timeline changed).
 #[tauri::command]
 pub async fn add_image_layer(
     path: String,
     state: State<'_, ProjectState>,
-) -> Result<LayerInfo, AppError> {
+) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
     let mut guard = state.lock().unwrap();
     let project = guard.as_mut().ok_or(AppError::NoProject)?;
     project.add_image_layer(&path)

@@ -24,7 +24,7 @@
 
   async function handleAddImage() {
     const path = await open({
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
     });
     if (!path) return;
     try {

@@ -13,6 +13,11 @@ pub struct ImageLayer {
     pub name: String,
     #[serde(skip)]
     pub image_data: Option<image::RgbaImage>,
+    /// For animated GIF overlays: all decoded frames.  When non-empty the
+    /// compositor picks `frames[(project_frame - range_start) % len]`
+    /// instead of `image_data`.
+    #[serde(skip)]
+    pub frames: Vec<image::RgbaImage>,
     pub position: (f64, f64),
     pub scale_x: f64,
     pub scale_y: f64,
@@ -32,6 +37,7 @@ impl ImageLayer {
             id: Uuid::new_v4(),
             name,
             image_data: None,
+            frames: Vec::new(),
             position: (0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,

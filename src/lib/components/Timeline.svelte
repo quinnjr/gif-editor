@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import { project } from '$lib/stores/project.svelte';
   import { ui } from '$lib/stores/ui.svelte';
@@ -11,12 +11,12 @@
   let dragging = $state<'start' | 'end' | null>(null);
   let stripEl = $state<HTMLDivElement | null>(null);
 
-  let selectedFrames = $state<Set<number>>(new Set());
+  let selectedFrames: SvelteSet<number> = new SvelteSet();
   let lastSelectedFrame = $state<number | null>(null);
 
   function toggleFrameSelection(index: number, e: MouseEvent) {
     if (e.ctrlKey || e.metaKey) {
-      const next = new Set(selectedFrames);
+      const next = new SvelteSet(selectedFrames);
       if (next.has(index)) {
         next.delete(index);
       } else {
@@ -27,14 +27,14 @@
     } else if (e.shiftKey && lastSelectedFrame !== null) {
       const lo = Math.min(lastSelectedFrame, index);
       const hi = Math.max(lastSelectedFrame, index);
-      const next = new Set(selectedFrames);
+      const next = new SvelteSet(selectedFrames);
       for (let i = lo; i <= hi; i++) {
         next.add(i);
       }
       selectedFrames = next;
     } else {
       ui.setFrame(index);
-      selectedFrames = new Set();
+      selectedFrames = new SvelteSet();
       lastSelectedFrame = null;
     }
   }
@@ -50,7 +50,7 @@
     } catch (e) {
       console.error('Delete frames failed:', e);
     }
-    selectedFrames = new Set();
+    selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
   }
 
@@ -71,7 +71,7 @@
     } catch (e) {
       console.error('Keep selected failed:', e);
     }
-    selectedFrames = new Set();
+    selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
   }
 
@@ -109,7 +109,7 @@
     }
     const count = meta.frame_count;
     thumbnails = new Array(count).fill('');
-    selectedFrames = new Set();
+    selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
 
     let cancelled = false;
@@ -233,7 +233,7 @@
     Open a GIF to see the timeline
   </div>
 {:else}
-  <div class="flex h-full flex-col" onkeydown={handleKeydown} tabindex="-1">
+  <div class="flex h-full flex-col" role="toolbar" onkeydown={handleKeydown} tabindex="-1">
     <!-- Controls row -->
     <div class="flex items-center gap-3 border-b border-zinc-700 px-3 py-1 text-sm">
       <button
@@ -313,7 +313,7 @@
         class="flex h-full items-center gap-0.5 overflow-x-auto px-1"
         style="scrollbar-width: thin; scrollbar-color: #52525b transparent;"
       >
-        {#each thumbnails as src, i}
+        {#each thumbnails as src, i (i)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -364,7 +364,6 @@
         </div>
 
         <!-- Drag handles (pointer-events enabled) -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="absolute inset-y-0 w-2 cursor-ew-resize bg-blue-500 opacity-80 hover:opacity-100"
           style="left: calc({startPct}% - 4px)"
@@ -378,7 +377,6 @@
           aria-valuemax={selectedLayer.frame_range[1]}
           tabindex="0"
         ></div>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="absolute inset-y-0 w-2 cursor-ew-resize bg-blue-500 opacity-80 hover:opacity-100"
           style="left: calc({endPct}% - 4px)"

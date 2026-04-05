@@ -166,4 +166,8 @@ impl FrameSource for GifData {
         // Delegate to the inherent method which handles caching.
         GifData::get_frame(self, index)
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }

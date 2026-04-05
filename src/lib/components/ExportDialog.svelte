@@ -54,7 +54,7 @@
 
 {#if open}
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-40 bg-black/50" onclick={onclose}></div>
+  <div class="fixed inset-0 z-40 bg-black/50" role="presentation" onclick={onclose}></div>
 
   <!-- Dialog -->
   <div class="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-zinc-800 p-6 shadow-xl">

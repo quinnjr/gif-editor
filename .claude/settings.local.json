@@ -8,7 +8,14 @@
       "Bash(bun --version)",
       "Bash(cargo install:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(cargo test:*)",
+      "Bash(rm:*)",
+      "Bash(cursor --version)",
+      "Read(//home/joseph/.cursor/**)",
+      "Bash(ffmpeg -y -f lavfi -i \"color=c=red:s=640x480:d=3,fps=30\" -c:v libx264 -pix_fmt yuv420p /tmp/test_realistic.mp4)",
+      "Bash(RUSTFLAGS=\"\" cargo test --lib -- --nocapture)"
     ]
   }
 }

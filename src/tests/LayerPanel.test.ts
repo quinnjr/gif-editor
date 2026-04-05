@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 describe('LayerPanel', () => {
   it('tauri mocks are available', () => {
-    const { invoke } = vi.mocked(require('@tauri-apps/api/core'));
+    const { invoke } = await vi.importMock<typeof import('@tauri-apps/api/core')>('@tauri-apps/api/core');
     expect(invoke).toBeDefined();
     expect(typeof invoke).toBe('function');
   });

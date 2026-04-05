@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 describe('Toolbar', () => {
   it('dialog mock open function is available', () => {
-    const { open } = vi.mocked(require('@tauri-apps/plugin-dialog'));
+    const { open } = await vi.importMock<typeof import('@tauri-apps/plugin-dialog')>('@tauri-apps/plugin-dialog');
     expect(open).toBeDefined();
     expect(typeof open).toBe('function');
   });
