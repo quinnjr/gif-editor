@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
 ## [0.1.0] - 2026-04-05
 
 ### Added
@@ -66,11 +68,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Toast notifications for errors
 
 - **Build & distribution**
-  - Flatpak manifest with ffmpeg, x264, libvpx, opus modules
-  - AppStream metainfo and desktop entry
-  - AppImage, deb, and rpm bundle support
+  - Flatpak manifest (GNOME 48 SDK) with ffmpeg, x264, libvpx, opus
+  - AppStream metainfo and desktop entry with MIME associations
+  - AppImage, deb, and rpm bundle support via `pnpm tauri:build`
+  - GitHub Actions release workflow for Linux/macOS/Windows on tag push
   - ESLint with Svelte and TypeScript rules
 
-- **Testing**
-  - 42 Rust integration tests (compositor, layer, project, export, decoders)
-  - Frontend test infrastructure with Vitest and Tauri mocks
+- **Testing & quality**
+  - 102 Rust integration tests (90.75% source coverage)
+  - 77 TypeScript unit tests (100% coverage)
+  - cargo clippy clean (zero warnings)
+  - cargo fmt applied
+
+[Unreleased]: https://github.com/quinnjr/gif-editor/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/quinnjr/gif-editor/releases/tag/v0.1.0
