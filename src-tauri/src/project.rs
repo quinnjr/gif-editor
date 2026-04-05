@@ -270,11 +270,29 @@ impl Project {
             })
             .collect();
 
+        let layer_source_keyframes: Vec<Vec<Keyframe>> = self
+            .layers
+            .iter()
+            .map(|l| {
+                l.keyframes()
+                    .iter()
+                    .filter_map(|kf| {
+                        self.logical_to_source(kf.frame).map(|src| Keyframe {
+                            frame: src,
+                            position: kf.position,
+                            opacity: kf.opacity,
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
         for si in &source_indices {
             self.excluded_frames.insert(*si);
         }
 
         self.remap_layer_ranges(&layer_source_ranges);
+        self.remap_layer_keyframes(&layer_source_keyframes);
         Ok(self.visible_metadata())
     }
 
@@ -325,11 +343,29 @@ impl Project {
             })
             .collect();
 
+        let layer_source_keyframes: Vec<Vec<Keyframe>> = self
+            .layers
+            .iter()
+            .map(|l| {
+                l.keyframes()
+                    .iter()
+                    .filter_map(|kf| {
+                        self.logical_to_source(kf.frame).map(|src| Keyframe {
+                            frame: src,
+                            position: kf.position,
+                            opacity: kf.opacity,
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
         for si in source_indices {
             self.excluded_frames.remove(si);
         }
 
         self.remap_layer_ranges(&layer_source_ranges);
+        self.remap_layer_keyframes(&layer_source_keyframes);
         Ok(self.visible_metadata())
     }
 
@@ -364,6 +400,34 @@ impl Project {
             match layer {
                 Layer::Image(l) => l.frame_range = (ns, ne),
                 Layer::Text(l) => l.frame_range = (ns, ne),
+            }
+        }
+    }
+
+    fn remap_layer_keyframes(&mut self, source_keyframes: &[Vec<Keyframe>]) {
+        // Pre-compute all new keyframe vectors before mutating layers so that
+        // source_to_logical's immutable borrow of self does not conflict with
+        // the subsequent mutable iteration — same pattern as remap_layer_ranges.
+        let new_keyframes: Vec<Vec<Keyframe>> = source_keyframes
+            .iter()
+            .map(|src_kfs| {
+                src_kfs
+                    .iter()
+                    .filter_map(|kf| {
+                        self.source_to_logical(kf.frame).map(|new_frame| Keyframe {
+                            frame: new_frame,
+                            position: kf.position,
+                            opacity: kf.opacity,
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        for (layer, new_kfs) in self.layers.iter_mut().zip(new_keyframes) {
+            match layer {
+                Layer::Image(l) => l.keyframes = new_kfs,
+                Layer::Text(l) => l.keyframes = new_kfs,
             }
         }
     }
