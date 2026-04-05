@@ -39,6 +39,9 @@ Thumbs.db
 # Plan and design docs (local-only working references)
 docs/superpowers/
 
+# Test coverage reports
+coverage/
+
 # Flatpak build artifacts
 flatpak-build/
 .flatpak-builder/
