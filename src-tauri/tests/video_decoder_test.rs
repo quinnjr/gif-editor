@@ -80,3 +80,28 @@ fn project_opens_video() {
     let png_path = proj.get_frame_png_path(0).unwrap();
     assert!(std::path::Path::new(&png_path).exists());
 }
+
+#[test]
+fn open_nonexistent_file_returns_error() {
+    let bogus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("does_not_exist.mp4");
+    let result = VideoData::open(&bogus);
+    assert!(result.is_err());
+}
+
+#[test]
+fn video_source_path() {
+    ensure_test_video();
+    let vd = VideoData::open(&fixture_path()).unwrap();
+    assert_eq!(vd.source_path(), fixture_path().as_path());
+}
+
+#[test]
+fn video_as_any_mut() {
+    ensure_test_video();
+    let mut vd = VideoData::open(&fixture_path()).unwrap();
+    let any = vd.as_any_mut();
+    assert!(any.downcast_mut::<VideoData>().is_some());
+}

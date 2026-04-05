@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use gif_editor_lib::gif_decoder::GifData;
-use gif_editor_lib::export::{ExportFormat, ExportSettings, export_gif};
+use gif_editor_lib::export::{ExportFormat, ExportSettings, export_gif, export_video, ffmpeg_available};
 use gif_editor_lib::layer::{ImageLayer, Layer, TextLayer};
 
 fn fixture_path() -> PathBuf {
@@ -93,4 +93,165 @@ fn export_gif_with_image_and_text_layers() {
     let result = GifData::open(&output_path).unwrap();
     assert_eq!(result.frame_count(), 3);
     assert_eq!(result.dimensions(), (10, 10));
+}
+
+#[test]
+fn export_gif_with_skipped_frames() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+    };
+    // Only export frames 0 and 2, skipping frame 1
+    let frame_indices = vec![0, 2];
+    let delays = vec![10u16, 10];
+    export_gif(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+    let result = GifData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 2);
+    assert_eq!(result.dimensions(), (10, 10));
+}
+
+#[test]
+fn export_gif_single_frame() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 50,
+        resize: None,
+    };
+    let frame_indices = vec![1];
+    let delays = vec![10u16];
+    export_gif(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+    let result = GifData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 1);
+}
+
+#[test]
+fn ffmpeg_available_returns_bool() {
+    // This just verifies the function runs without panicking.
+    // The result depends on the test environment.
+    let _available = ffmpeg_available();
+}
+
+#[test]
+fn export_video_mp4_if_ffmpeg_present() {
+    if !ffmpeg_available() {
+        eprintln!("skipping export_video_mp4 test: ffmpeg not on PATH");
+        return;
+    }
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("mp4");
+
+    let settings = ExportSettings {
+        format: ExportFormat::Mp4,
+        quality: 70,
+        resize: None,
+    };
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+
+    export_video(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+    assert!(output_path.exists());
+    assert!(std::fs::metadata(&output_path).unwrap().len() > 0);
+}
+
+#[test]
+fn export_video_gif_format_rejected() {
+    if !ffmpeg_available() {
+        eprintln!("skipping export_video_gif_format test: ffmpeg not on PATH");
+        return;
+    }
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+    };
+    let frame_indices: Vec<usize> = (0..gif.frame_count()).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+
+    let result = export_video(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        |_| {},
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn export_gif_progress_callback_counts() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+    };
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+
+    let progress = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let p = progress.clone();
+    export_gif(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        move |n| { p.lock().unwrap().push(n); },
+    )
+    .unwrap();
+
+    let counts = progress.lock().unwrap();
+    assert_eq!(counts.len(), frame_count);
+    assert_eq!(*counts, vec![1, 2, 3]);
 }
