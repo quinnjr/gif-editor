@@ -10,6 +10,7 @@ pub mod export;
 pub mod fonts;
 pub mod frame_source;
 pub mod gif_decoder;
+pub mod image_source;
 pub mod layer;
 pub mod project;
 pub mod text_renderer;

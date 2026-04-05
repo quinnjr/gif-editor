@@ -12,6 +12,7 @@ use crate::compositor::composite_frame;
 use crate::error::AppError;
 use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
+use crate::image_source::ImageSource;
 use crate::layer::{ImageLayer, Layer, Stroke, TextLayer};
 use crate::video_decoder::VideoData;
 
@@ -154,6 +155,7 @@ impl Project {
         let source: Box<dyn FrameSource> = match ext.as_str() {
             "gif" => Box::new(GifData::open(path)?),
             "mp4" | "webm" => Box::new(VideoData::open(path)?),
+            "png" | "jpg" | "jpeg" | "webp" => Box::new(ImageSource::open(path)?),
             other => {
                 return Err(AppError::VideoDecode(format!(
                     "unsupported file format: .{other}"

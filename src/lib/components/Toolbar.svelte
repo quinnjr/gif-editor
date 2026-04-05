@@ -10,7 +10,7 @@
   async function handleOpenFile() {
     const path = await open({
       filters: [
-        { name: 'Supported Media', extensions: ['gif', 'mp4', 'webm'] },
+        { name: 'Supported Media', extensions: ['gif', 'mp4', 'webm', 'png', 'jpg', 'jpeg', 'webp'] },
       ],
     });
     if (!path) return;
