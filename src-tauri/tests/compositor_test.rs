@@ -2,8 +2,12 @@ use gif_editor_lib::compositor::composite_frame;
 use gif_editor_lib::layer::{ImageLayer, Keyframe, Layer, TextLayer};
 use image::{Rgba, RgbaImage};
 
-fn red_10x10() -> RgbaImage { RgbaImage::from_pixel(10, 10, Rgba([255, 0, 0, 255])) }
-fn blue_5x5() -> RgbaImage { RgbaImage::from_pixel(5, 5, Rgba([0, 0, 255, 255])) }
+fn red_10x10() -> RgbaImage {
+    RgbaImage::from_pixel(10, 10, Rgba([255, 0, 0, 255]))
+}
+fn blue_5x5() -> RgbaImage {
+    RgbaImage::from_pixel(5, 5, Rgba([0, 0, 255, 255]))
+}
 
 #[test]
 fn composite_no_layers_returns_base() {
@@ -141,8 +145,16 @@ fn composite_text_layer_with_keyframes() {
     let mut layer = TextLayer::new("KF".to_string());
     layer.frame_range = (0, 10);
     layer.keyframes = vec![
-        Keyframe { frame: 0, position: (0.0, 0.0), opacity: 1.0 },
-        Keyframe { frame: 10, position: (100.0, 100.0), opacity: 0.5 },
+        Keyframe {
+            frame: 0,
+            position: (0.0, 0.0),
+            opacity: 1.0,
+        },
+        Keyframe {
+            frame: 10,
+            position: (100.0, 100.0),
+            opacity: 0.5,
+        },
     ];
     let layers = vec![Layer::Text(layer)];
 
@@ -159,8 +171,14 @@ fn composite_text_layer_with_keyframes() {
     assert_eq!(result10.dimensions(), (200, 200));
 
     // The text should render somewhere different in each frame
-    let modified_0 = result0.pixels().filter(|p| **p != Rgba([255, 0, 0, 255])).count();
-    let modified_5 = result5.pixels().filter(|p| **p != Rgba([255, 0, 0, 255])).count();
+    let modified_0 = result0
+        .pixels()
+        .filter(|p| **p != Rgba([255, 0, 0, 255]))
+        .count();
+    let modified_5 = result5
+        .pixels()
+        .filter(|p| **p != Rgba([255, 0, 0, 255]))
+        .count();
     assert!(modified_0 > 0, "Frame 0 should have text pixels");
     assert!(modified_5 > 0, "Frame 5 should have text pixels");
 }
@@ -177,8 +195,16 @@ fn composite_image_layer_with_keyframes() {
     layer.image_data = Some(overlay);
     layer.frame_range = (0, 10);
     layer.keyframes = vec![
-        Keyframe { frame: 0, position: (0.0, 0.0), opacity: 1.0 },
-        Keyframe { frame: 10, position: (16.0, 16.0), opacity: 1.0 },
+        Keyframe {
+            frame: 0,
+            position: (0.0, 0.0),
+            opacity: 1.0,
+        },
+        Keyframe {
+            frame: 10,
+            position: (16.0, 16.0),
+            opacity: 1.0,
+        },
     ];
     let layers = vec![Layer::Image(layer)];
 

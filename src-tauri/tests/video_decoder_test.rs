@@ -20,10 +20,14 @@ fn ensure_test_video() {
     let status = Command::new("ffmpeg")
         .args([
             "-y",
-            "-f", "lavfi",
-            "-i", "color=c=blue:s=64x64:d=0.5,fps=10",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x64:d=0.5,fps=10",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
         ])
         .arg(&path)
         .status()

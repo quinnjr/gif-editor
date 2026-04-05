@@ -45,15 +45,18 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                 let kx = img_layer.skew_x;
                 let ky = img_layer.skew_y;
 
-                let (pos, opacity) = match interpolate_keyframes(&img_layer.keyframes, frame_index) {
+                let (pos, opacity) = match interpolate_keyframes(&img_layer.keyframes, frame_index)
+                {
                     Some((p, o)) => (p, o),
                     None => (img_layer.position, img_layer.opacity),
                 };
 
                 let params = AffineParams {
                     position: pos,
-                    scale_x: sx, scale_y: sy,
-                    skew_x: kx, skew_y: ky,
+                    scale_x: sx,
+                    scale_y: sy,
+                    skew_x: kx,
+                    skew_y: ky,
                     opacity,
                 };
                 if is_identity(sx, sy, kx, ky) {
@@ -69,15 +72,18 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     let kx = text_layer.skew_x;
                     let ky = text_layer.skew_y;
 
-                    let (pos, opacity) = match interpolate_keyframes(&text_layer.keyframes, frame_index) {
-                        Some((p, o)) => (p, o),
-                        None => (text_layer.position, text_layer.opacity),
-                    };
+                    let (pos, opacity) =
+                        match interpolate_keyframes(&text_layer.keyframes, frame_index) {
+                            Some((p, o)) => (p, o),
+                            None => (text_layer.position, text_layer.opacity),
+                        };
 
                     let params = AffineParams {
                         position: pos,
-                        scale_x: sx, scale_y: sy,
-                        skew_x: kx, skew_y: ky,
+                        scale_x: sx,
+                        scale_y: sy,
+                        skew_x: kx,
+                        skew_y: ky,
                         opacity,
                     };
                     if is_identity(sx, sy, kx, ky) {
@@ -113,23 +119,14 @@ fn is_identity(sx: f64, sy: f64, kx: f64, ky: f64) -> bool {
 ///
 /// We iterate over the output bounding box and use the inverse matrix to
 /// sample source pixels with bilinear interpolation.
-fn affine_composite(
-    target: &mut RgbaImage,
-    src: &RgbaImage,
-    params: &AffineParams,
-) {
+fn affine_composite(target: &mut RgbaImage, src: &RgbaImage, params: &AffineParams) {
     let (tw, th) = (target.width() as i64, target.height() as i64);
     let (sw, sh) = (src.width() as f64, src.height() as f64);
     let (tx, ty) = params.position;
     let (sx, sy, kx, ky) = (params.scale_x, params.scale_y, params.skew_x, params.skew_y);
     let opacity = params.opacity;
 
-    let corners = [
-        (0.0, 0.0),
-        (sw, 0.0),
-        (0.0, sh),
-        (sw, sh),
-    ];
+    let corners = [(0.0, 0.0), (sw, 0.0), (0.0, sh), (sw, sh)];
 
     let mut min_x = f64::MAX;
     let mut min_y = f64::MAX;

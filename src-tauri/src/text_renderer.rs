@@ -123,7 +123,8 @@ fn draw_text_at(
             cursor_x += scaled.kern(prev, glyph_id);
         }
 
-        let glyph: Glyph = glyph_id.with_scale_and_position(scale, ab_glyph::point(cursor_x, baseline_y));
+        let glyph: Glyph =
+            glyph_id.with_scale_and_position(scale, ab_glyph::point(cursor_x, baseline_y));
         cursor_x += scaled.h_advance(glyph_id);
         prev_glyph_id = Some(glyph_id);
 
@@ -135,11 +136,7 @@ fn draw_text_at(
         outlined.draw(|gx, gy, coverage| {
             let px = bounds.min.x as i32 + gx as i32;
             let py = bounds.min.y as i32 + gy as i32;
-            if px < 0
-                || py < 0
-                || px >= img.width() as i32
-                || py >= img.height() as i32
-            {
+            if px < 0 || py < 0 || px >= img.width() as i32 || py >= img.height() as i32 {
                 return;
             }
             let dst = img.get_pixel_mut(px as u32, py as u32);
@@ -162,8 +159,7 @@ fn simple_blend(dst: &Rgba<u8>, src: Rgba<u8>, coverage: f32) -> Rgba<u8> {
     }
 
     let blend = |s: u8, d: u8| -> u8 {
-        let val =
-            (s as f32 * src_a + d as f32 * dst_a * (1.0 - src_a)) / out_a;
+        let val = (s as f32 * src_a + d as f32 * dst_a * (1.0 - src_a)) / out_a;
         val.round() as u8
     };
 

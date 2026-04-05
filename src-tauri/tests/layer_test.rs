@@ -42,7 +42,11 @@ fn interpolate_empty_keyframes_returns_none() {
 
 #[test]
 fn interpolate_single_keyframe_returns_its_values() {
-    let kfs = vec![Keyframe { frame: 5, position: (10.0, 20.0), opacity: 0.5 }];
+    let kfs = vec![Keyframe {
+        frame: 5,
+        position: (10.0, 20.0),
+        opacity: 0.5,
+    }];
     assert_eq!(interpolate_keyframes(&kfs, 0), Some(((10.0, 20.0), 0.5)));
     assert_eq!(interpolate_keyframes(&kfs, 5), Some(((10.0, 20.0), 0.5)));
     assert_eq!(interpolate_keyframes(&kfs, 10), Some(((10.0, 20.0), 0.5)));
@@ -51,20 +55,36 @@ fn interpolate_single_keyframe_returns_its_values() {
 #[test]
 fn interpolate_two_keyframes_lerps() {
     let kfs = vec![
-        Keyframe { frame: 0, position: (0.0, 0.0), opacity: 1.0 },
-        Keyframe { frame: 10, position: (100.0, 50.0), opacity: 0.0 },
+        Keyframe {
+            frame: 0,
+            position: (0.0, 0.0),
+            opacity: 1.0,
+        },
+        Keyframe {
+            frame: 10,
+            position: (100.0, 50.0),
+            opacity: 0.0,
+        },
     ];
     let result = interpolate_keyframes(&kfs, 5).unwrap();
-    assert!((result.0 .0 - 50.0).abs() < 0.01);
-    assert!((result.0 .1 - 25.0).abs() < 0.01);
+    assert!((result.0.0 - 50.0).abs() < 0.01);
+    assert!((result.0.1 - 25.0).abs() < 0.01);
     assert!((result.1 - 0.5).abs() < 0.01);
 }
 
 #[test]
 fn interpolate_clamps_before_and_after() {
     let kfs = vec![
-        Keyframe { frame: 5, position: (10.0, 10.0), opacity: 0.8 },
-        Keyframe { frame: 15, position: (20.0, 20.0), opacity: 0.2 },
+        Keyframe {
+            frame: 5,
+            position: (10.0, 10.0),
+            opacity: 0.8,
+        },
+        Keyframe {
+            frame: 15,
+            position: (20.0, 20.0),
+            opacity: 0.2,
+        },
     ];
     assert_eq!(interpolate_keyframes(&kfs, 0), Some(((10.0, 10.0), 0.8)));
     assert_eq!(interpolate_keyframes(&kfs, 20), Some(((20.0, 20.0), 0.2)));
@@ -78,8 +98,16 @@ fn interpolate_clamps_before_and_after() {
 fn image_layer_keyframes_accessor() {
     let mut layer = ImageLayer::new("test".to_string(), 10, 10);
     layer.keyframes = vec![
-        Keyframe { frame: 0, position: (1.0, 2.0), opacity: 1.0 },
-        Keyframe { frame: 5, position: (3.0, 4.0), opacity: 0.5 },
+        Keyframe {
+            frame: 0,
+            position: (1.0, 2.0),
+            opacity: 1.0,
+        },
+        Keyframe {
+            frame: 5,
+            position: (3.0, 4.0),
+            opacity: 0.5,
+        },
     ];
     let wrapped = Layer::Image(layer);
     let kfs = wrapped.keyframes();
@@ -91,9 +119,11 @@ fn image_layer_keyframes_accessor() {
 #[test]
 fn text_layer_keyframes_accessor() {
     let mut layer = TextLayer::new("test".to_string());
-    layer.keyframes = vec![
-        Keyframe { frame: 2, position: (10.0, 20.0), opacity: 0.8 },
-    ];
+    layer.keyframes = vec![Keyframe {
+        frame: 2,
+        position: (10.0, 20.0),
+        opacity: 0.8,
+    }];
     let wrapped = Layer::Text(layer);
     let kfs = wrapped.keyframes();
     assert_eq!(kfs.len(), 1);

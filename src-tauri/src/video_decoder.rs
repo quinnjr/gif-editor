@@ -43,11 +43,14 @@ impl VideoData {
         // Probe stream metadata with ffprobe.
         let probe_output = Command::new("ffprobe")
             .args([
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_streams",
                 "-show_format",
-                "-select_streams", "v:0",
+                "-select_streams",
+                "v:0",
             ])
             .arg(path)
             .output()
@@ -55,14 +58,11 @@ impl VideoData {
 
         if !probe_output.status.success() {
             let stderr = String::from_utf8_lossy(&probe_output.stderr);
-            return Err(AppError::VideoDecode(format!(
-                "ffprobe failed: {stderr}"
-            )));
+            return Err(AppError::VideoDecode(format!("ffprobe failed: {stderr}")));
         }
 
-        let probe_json: serde_json::Value =
-            serde_json::from_slice(&probe_output.stdout)
-                .map_err(|e| AppError::VideoDecode(format!("failed to parse ffprobe output: {e}")))?;
+        let probe_json: serde_json::Value = serde_json::from_slice(&probe_output.stdout)
+            .map_err(|e| AppError::VideoDecode(format!("failed to parse ffprobe output: {e}")))?;
 
         let stream = probe_json["streams"]
             .as_array()
@@ -71,17 +71,15 @@ impl VideoData {
 
         let width = stream["width"]
             .as_u64()
-            .ok_or_else(|| AppError::VideoDecode("missing width".to_string()))? as u32;
+            .ok_or_else(|| AppError::VideoDecode("missing width".to_string()))?
+            as u32;
         let height = stream["height"]
             .as_u64()
-            .ok_or_else(|| AppError::VideoDecode("missing height".to_string()))? as u32;
+            .ok_or_else(|| AppError::VideoDecode("missing height".to_string()))?
+            as u32;
 
         // Parse frame rate from r_frame_rate (e.g. "30/1" or "24000/1001").
-        let fps = parse_frame_rate(
-            stream["r_frame_rate"]
-                .as_str()
-                .unwrap_or("25/1"),
-        );
+        let fps = parse_frame_rate(stream["r_frame_rate"].as_str().unwrap_or("25/1"));
 
         // Count frames.  nb_frames is the most reliable when present, but
         // many containers don't set it.  Fall back to duration * fps.
@@ -130,18 +128,10 @@ impl VideoData {
         let timestamp = index as f64 / self.fps;
 
         let output = Command::new("ffmpeg")
-            .args([
-                "-ss",
-                &format!("{timestamp:.6}"),
-                "-i",
-            ])
+            .args(["-ss", &format!("{timestamp:.6}"), "-i"])
             .arg(&self.source_path)
             .args([
-                "-vframes", "1",
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
-                "-v", "quiet",
-                "pipe:1",
+                "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-v", "quiet", "pipe:1",
             ])
             .output()
             .map_err(|e| AppError::VideoDecode(format!("failed to run ffmpeg: {e}")))?;

@@ -95,10 +95,7 @@ pub async fn update_layer(
 
 /// Remove the layer with the given `id` from the stack.
 #[tauri::command]
-pub async fn remove_layer(
-    id: Uuid,
-    state: State<'_, ProjectState>,
-) -> Result<(), AppError> {
+pub async fn remove_layer(id: Uuid, state: State<'_, ProjectState>) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
     let project = guard.as_mut().ok_or(AppError::NoProject)?;
     project.remove_layer(id)
@@ -162,9 +159,7 @@ pub async fn restore_frames(
 /// Return the set of source frame indices currently excluded from the
 /// visible timeline.
 #[tauri::command]
-pub async fn get_excluded_frames(
-    state: State<'_, ProjectState>,
-) -> Result<Vec<usize>, AppError> {
+pub async fn get_excluded_frames(state: State<'_, ProjectState>) -> Result<Vec<usize>, AppError> {
     let guard = state.lock().unwrap();
     let project = guard.as_ref().ok_or(AppError::NoProject)?;
     Ok(project.get_excluded_frames())
@@ -204,28 +199,24 @@ pub async fn export_project(
     };
 
     match settings.format {
-        export::ExportFormat::Gif => {
-            export::export_gif(
-                project.source.as_mut(),
-                &layers,
-                &settings,
-                out,
-                &frame_indices,
-                &delays,
-                on_progress,
-            )
-        }
-        export::ExportFormat::Mp4 | export::ExportFormat::WebM => {
-            export::export_video(
-                project.source.as_mut(),
-                &layers,
-                &settings,
-                out,
-                &frame_indices,
-                &delays,
-                on_progress,
-            )
-        }
+        export::ExportFormat::Gif => export::export_gif(
+            project.source.as_mut(),
+            &layers,
+            &settings,
+            out,
+            &frame_indices,
+            &delays,
+            on_progress,
+        ),
+        export::ExportFormat::Mp4 | export::ExportFormat::WebM => export::export_video(
+            project.source.as_mut(),
+            &layers,
+            &settings,
+            out,
+            &frame_indices,
+            &delays,
+            on_progress,
+        ),
     }
 }
 

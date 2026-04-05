@@ -16,7 +16,10 @@ pub struct Keyframe {
 
 /// Interpolate keyframes for a given frame index.
 /// Returns None if keyframes is empty (caller uses base values).
-pub fn interpolate_keyframes(keyframes: &[Keyframe], frame_index: usize) -> Option<((f64, f64), f64)> {
+pub fn interpolate_keyframes(
+    keyframes: &[Keyframe],
+    frame_index: usize,
+) -> Option<((f64, f64), f64)> {
     if keyframes.is_empty() {
         return None;
     }
@@ -33,7 +36,11 @@ pub fn interpolate_keyframes(keyframes: &[Keyframe], frame_index: usize) -> Opti
         let b = &keyframes[i + 1];
         if frame_index >= a.frame && frame_index <= b.frame {
             let span = (b.frame - a.frame) as f64;
-            let t = if span > 0.0 { (frame_index - a.frame) as f64 / span } else { 0.0 };
+            let t = if span > 0.0 {
+                (frame_index - a.frame) as f64 / span
+            } else {
+                0.0
+            };
             let x = a.position.0 + t * (b.position.0 - a.position.0);
             let y = a.position.1 + t * (b.position.1 - a.position.1);
             let opacity = a.opacity + t * (b.opacity - a.opacity);

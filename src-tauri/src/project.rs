@@ -301,8 +301,7 @@ impl Project {
         // contiguous restored frames that were previously excluded at the
         // boundaries.  This allows a delete→restore round-trip to recover the
         // original layer extent.
-        let restoring: std::collections::BTreeSet<usize> =
-            source_indices.iter().copied().collect();
+        let restoring: std::collections::BTreeSet<usize> = source_indices.iter().copied().collect();
 
         let layer_source_ranges: Vec<(usize, usize)> = self
             .layers
@@ -475,7 +474,10 @@ impl Project {
                 self.visible_frame_count()
             ))
         })?;
-        let png_path: PathBuf = self.temp_dir.path().join(format!("frame_{src_index:05}.png"));
+        let png_path: PathBuf = self
+            .temp_dir
+            .path()
+            .join(format!("frame_{src_index:05}.png"));
 
         if !png_path.exists() {
             let frame: RgbaImage = self.source.get_frame(src_index)?;
@@ -493,7 +495,10 @@ impl Project {
 
     /// Load an image from `path` and create a new `ImageLayer` covering all
     /// frames.
-    pub fn add_image_layer(&mut self, path: &str) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
+    pub fn add_image_layer(
+        &mut self,
+        path: &str,
+    ) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
         let ext = Path::new(path)
             .extension()
             .and_then(|e| e.to_str())

@@ -62,9 +62,7 @@ pub fn export_gif(
     on_progress: impl Fn(usize),
 ) -> Result<(), AppError> {
     let (src_w, src_h) = source.dimensions();
-    let (out_w, out_h) = settings
-        .resize
-        .unwrap_or((src_w, src_h));
+    let (out_w, out_h) = settings.resize.unwrap_or((src_w, src_h));
 
     // imagequant quality maps 0–100 directly.
     let iq_quality = settings.quality;
@@ -105,12 +103,7 @@ pub fn export_gif(
             .collect();
 
         let mut iq_image = iq
-            .new_image(
-                pixels.as_slice(),
-                out_w as usize,
-                out_h as usize,
-                0.0,
-            )
+            .new_image(pixels.as_slice(), out_w as usize, out_h as usize, 0.0)
             .map_err(|e| AppError::Export(e.to_string()))?;
 
         let mut res = iq
@@ -122,10 +115,7 @@ pub fn export_gif(
             .map_err(|e| AppError::Export(e.to_string()))?;
 
         // Build the flat palette bytes [R,G,B, ...] that gif expects.
-        let palette_bytes: Vec<u8> = palette
-            .iter()
-            .flat_map(|c| [c.r, c.g, c.b])
-            .collect();
+        let palette_bytes: Vec<u8> = palette.iter().flat_map(|c| [c.r, c.g, c.b]).collect();
 
         let delay = delays[logical];
         let mut frame = gif::Frame::from_palette_pixels(
@@ -249,11 +239,13 @@ pub fn export_video(
         "-framerate",
         &format!("{fps:.3}"),
         "-i",
-        &input_pattern,       // input 0: composited video frames
+        &input_pattern, // input 0: composited video frames
         "-i",
-        &source_str,          // input 1: original file (for audio)
-        "-map", "0:v",        // video from the PNG sequence
-        "-map", "1:a?",       // audio from original (? = optional)
+        &source_str, // input 1: original file (for audio)
+        "-map",
+        "0:v", // video from the PNG sequence
+        "-map",
+        "1:a?", // audio from original (? = optional)
         "-c:v",
         codec,
         "-crf",
@@ -262,7 +254,7 @@ pub fn export_video(
         "yuv420p",
         "-c:a",
         audio_codec,
-        "-shortest",          // stop when the shorter stream ends
+        "-shortest", // stop when the shorter stream ends
         &output_str,
     ]);
 

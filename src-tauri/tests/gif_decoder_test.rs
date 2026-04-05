@@ -23,8 +23,7 @@ fn ensure_test_gif() {
         let tmp_path = dir.join("test.gif.tmp");
         {
             let mut encoder =
-                gif::Encoder::new(std::fs::File::create(&tmp_path).unwrap(), 10, 10, &[])
-                    .unwrap();
+                gif::Encoder::new(std::fs::File::create(&tmp_path).unwrap(), 10, 10, &[]).unwrap();
             encoder.set_repeat(gif::Repeat::Infinite).unwrap();
             for i in 0u8..3 {
                 let pixels: Vec<u8> = (0..100).flat_map(|_| [i * 80, 0, 0, 255]).collect();
