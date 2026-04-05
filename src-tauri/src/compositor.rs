@@ -2,6 +2,16 @@ use image::{Rgba, RgbaImage};
 
 use crate::layer::{Layer, interpolate_keyframes};
 
+/// Affine transform parameters for a layer.
+struct AffineParams {
+    position: (f64, f64),
+    scale_x: f64,
+    scale_y: f64,
+    skew_x: f64,
+    skew_y: f64,
+    opacity: f64,
+}
+
 /// Composite all visible, in-range layers onto a clone of `base` for the
 /// given `frame_index`.  Returns a new image; the base is not mutated.
 pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -> RgbaImage {
@@ -40,21 +50,16 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     None => (img_layer.position, img_layer.opacity),
                 };
 
+                let params = AffineParams {
+                    position: pos,
+                    scale_x: sx, scale_y: sy,
+                    skew_x: kx, skew_y: ky,
+                    opacity,
+                };
                 if is_identity(sx, sy, kx, ky) {
-                    composite_rgba_buffer(
-                        &mut target,
-                        src,
-                        pos,
-                        opacity,
-                    );
+                    composite_rgba_buffer(&mut target, src, pos, opacity);
                 } else {
-                    affine_composite(
-                        &mut target,
-                        src,
-                        pos,
-                        sx, sy, kx, ky,
-                        opacity,
-                    );
+                    affine_composite(&mut target, src, &params);
                 }
             }
             Layer::Text(text_layer) => {
@@ -69,21 +74,16 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                         None => (text_layer.position, text_layer.opacity),
                     };
 
+                    let params = AffineParams {
+                        position: pos,
+                        scale_x: sx, scale_y: sy,
+                        skew_x: kx, skew_y: ky,
+                        opacity,
+                    };
                     if is_identity(sx, sy, kx, ky) {
-                        composite_rgba_buffer(
-                            &mut target,
-                            &text_img,
-                            pos,
-                            opacity,
-                        );
+                        composite_rgba_buffer(&mut target, &text_img, pos, opacity);
                     } else {
-                        affine_composite(
-                            &mut target,
-                            &text_img,
-                            pos,
-                            sx, sy, kx, ky,
-                            opacity,
-                        );
+                        affine_composite(&mut target, &text_img, &params);
                     }
                 }
             }
@@ -116,16 +116,13 @@ fn is_identity(sx: f64, sy: f64, kx: f64, ky: f64) -> bool {
 fn affine_composite(
     target: &mut RgbaImage,
     src: &RgbaImage,
-    position: (f64, f64),
-    sx: f64,
-    sy: f64,
-    kx: f64,
-    ky: f64,
-    opacity: f64,
+    params: &AffineParams,
 ) {
     let (tw, th) = (target.width() as i64, target.height() as i64);
     let (sw, sh) = (src.width() as f64, src.height() as f64);
-    let (tx, ty) = position;
+    let (tx, ty) = params.position;
+    let (sx, sy, kx, ky) = (params.scale_x, params.scale_y, params.skew_x, params.skew_y);
+    let opacity = params.opacity;
 
     let corners = [
         (0.0, 0.0),
