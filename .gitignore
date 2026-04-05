@@ -38,3 +38,7 @@ Thumbs.db
 
 # Plan and design docs (local-only working references)
 docs/superpowers/
+
+# Flatpak build artifacts
+flatpak-build/
+.flatpak-builder/
