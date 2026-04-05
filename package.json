@@ -23,6 +23,7 @@
     "@tauri-apps/cli": "^2.10.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.3.1",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.2.0",
     "eslint-plugin-svelte": "^3.17.0",
     "globals": "^17.4.0",

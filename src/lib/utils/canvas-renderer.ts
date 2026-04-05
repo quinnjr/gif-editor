@@ -13,7 +13,7 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function interpolateKeyframes(
+export function interpolateKeyframes(
   keyframes: Keyframe[],
   frameIndex: number,
 ): { position: [number, number]; opacity: number } | null {
