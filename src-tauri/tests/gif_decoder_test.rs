@@ -1,3 +1,4 @@
+use gif_editor_lib::frame_source::FrameSource;
 use gif_editor_lib::gif_decoder::GifData;
 use std::path::PathBuf;
 
@@ -69,4 +70,56 @@ fn lru_cache_evicts_old_frames() {
     gif.get_frame(2).unwrap(); // evicts frame 0
     let frame0 = gif.get_frame(0).unwrap(); // re-decoded
     assert_eq!(frame0.dimensions(), (10, 10));
+}
+
+// ---------------------------------------------------------------------------
+// FrameSource trait method coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gif_data_source_path() {
+    ensure_test_gif();
+    let gif = GifData::open(&fixture_path()).unwrap();
+    assert_eq!(gif.source_path(), fixture_path().as_path());
+}
+
+#[test]
+fn gif_data_delays_values() {
+    ensure_test_gif();
+    let gif = GifData::open(&fixture_path()).unwrap();
+    let delays = gif.delays();
+    assert_eq!(delays.len(), 3);
+    // All frames in the test fixture have delay=10
+    for &d in delays {
+        assert_eq!(d, 10);
+    }
+}
+
+#[test]
+fn gif_data_get_frame_caching() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    // First call decodes and caches
+    let f1 = gif.get_frame(1).unwrap();
+    // Second call should hit cache and return identical data
+    let f2 = gif.get_frame(1).unwrap();
+    assert_eq!(f1.dimensions(), f2.dimensions());
+    assert_eq!(f1.as_raw(), f2.as_raw());
+}
+
+#[test]
+fn gif_data_as_any_mut() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let any = gif.as_any_mut();
+    assert!(any.downcast_mut::<GifData>().is_some());
+}
+
+#[test]
+fn gif_data_frame_source_get_frame() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    // Call via the FrameSource trait
+    let frame: image::RgbaImage = FrameSource::get_frame(&mut gif, 0).unwrap();
+    assert_eq!(frame.dimensions(), (10, 10));
 }
