@@ -58,3 +58,15 @@ export async function getSystemFonts(): Promise<string[]> {
 export async function checkFfmpeg(): Promise<boolean> {
   return invoke('check_ffmpeg');
 }
+
+export async function deleteFrames(indices: number[]): Promise<GifMetadata> {
+  return invoke('delete_frames', { indices });
+}
+
+export async function restoreFrames(sourceIndices: number[]): Promise<GifMetadata> {
+  return invoke('restore_frames', { sourceIndices });
+}
+
+export async function getExcludedFrames(): Promise<number[]> {
+  return invoke('get_excluded_frames');
+}

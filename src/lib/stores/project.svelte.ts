@@ -5,6 +5,7 @@ class ProjectStore {
   metadata = $state<GifMetadata | null>(null);
   layers = $state<LayerInfo[]>([]);
   framePaths = $state<Map<number, string>>(new Map());
+  excludedFrames = $state<number[]>([]);
 
   get isOpen() { return this.metadata !== null; }
 
@@ -12,6 +13,7 @@ class ProjectStore {
     this.metadata = await cmd.openFile(path);
     this.layers = [];
     this.framePaths = new Map();
+    this.excludedFrames = [];
   }
 
   async getFramePath(index: number): Promise<string> {
@@ -52,6 +54,25 @@ class ProjectStore {
 
   async refreshLayers() {
     this.layers = await cmd.getLayers();
+  }
+
+  async deleteFrames(logicalIndices: number[]) {
+    this.metadata = await cmd.deleteFrames(logicalIndices);
+    this.excludedFrames = await cmd.getExcludedFrames();
+    this.layers = await cmd.getLayers();
+    this.framePaths = new Map();
+  }
+
+  async restoreFrames(sourceIndices: number[]) {
+    this.metadata = await cmd.restoreFrames(sourceIndices);
+    this.excludedFrames = await cmd.getExcludedFrames();
+    this.layers = await cmd.getLayers();
+    this.framePaths = new Map();
+  }
+
+  async restoreAllFrames() {
+    if (this.excludedFrames.length === 0) return;
+    await this.restoreFrames([...this.excludedFrames]);
   }
 }
 

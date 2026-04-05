@@ -11,6 +11,85 @@
   let dragging = $state<'start' | 'end' | null>(null);
   let stripEl = $state<HTMLDivElement | null>(null);
 
+  let selectedFrames = $state<Set<number>>(new Set());
+  let lastSelectedFrame = $state<number | null>(null);
+
+  function toggleFrameSelection(index: number, e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      const next = new Set(selectedFrames);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      selectedFrames = next;
+      lastSelectedFrame = index;
+    } else if (e.shiftKey && lastSelectedFrame !== null) {
+      const lo = Math.min(lastSelectedFrame, index);
+      const hi = Math.max(lastSelectedFrame, index);
+      const next = new Set(selectedFrames);
+      for (let i = lo; i <= hi; i++) {
+        next.add(i);
+      }
+      selectedFrames = next;
+    } else {
+      ui.setFrame(index);
+      selectedFrames = new Set();
+      lastSelectedFrame = null;
+    }
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedFrames.size === 0) return;
+    const indices = Array.from(selectedFrames).sort((a, b) => a - b);
+    try {
+      await project.deleteFrames(indices);
+      if (project.metadata && ui.currentFrame >= project.metadata.frame_count) {
+        ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
+      }
+    } catch (e) {
+      console.error('Delete frames failed:', e);
+    }
+    selectedFrames = new Set();
+    lastSelectedFrame = null;
+  }
+
+  async function handleKeepSelected() {
+    if (selectedFrames.size === 0 || !project.metadata) return;
+    const toDelete: number[] = [];
+    for (let i = 0; i < project.metadata.frame_count; i++) {
+      if (!selectedFrames.has(i)) {
+        toDelete.push(i);
+      }
+    }
+    if (toDelete.length === 0) return;
+    try {
+      await project.deleteFrames(toDelete);
+      if (project.metadata && ui.currentFrame >= project.metadata.frame_count) {
+        ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
+      }
+    } catch (e) {
+      console.error('Keep selected failed:', e);
+    }
+    selectedFrames = new Set();
+    lastSelectedFrame = null;
+  }
+
+  async function handleRestoreAll() {
+    try {
+      await project.restoreAllFrames();
+    } catch (e) {
+      console.error('Restore failed:', e);
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Delete' && selectedFrames.size > 0) {
+      e.preventDefault();
+      handleDeleteSelected();
+    }
+  }
+
   // Derived: selected layer
   const selectedLayer = $derived(
     ui.selectedLayerId ? project.layers.find((l) => l.id === ui.selectedLayerId) ?? null : null,
@@ -30,6 +109,8 @@
     }
     const count = meta.frame_count;
     thumbnails = new Array(count).fill('');
+    selectedFrames = new Set();
+    lastSelectedFrame = null;
 
     let cancelled = false;
 
@@ -152,7 +233,7 @@
     Open a GIF to see the timeline
   </div>
 {:else}
-  <div class="flex h-full flex-col">
+  <div class="flex h-full flex-col" onkeydown={handleKeydown} tabindex="-1">
     <!-- Controls row -->
     <div class="flex items-center gap-3 border-b border-zinc-700 px-3 py-1 text-sm">
       <button
@@ -204,6 +285,25 @@
           <option value={2}>2x</option>
         </select>
       </label>
+      {#if selectedFrames.size > 0}
+        <button onclick={handleDeleteSelected}
+          class="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-500"
+          title="Delete selected frames">
+          Delete ({selectedFrames.size})
+        </button>
+        <button onclick={handleKeepSelected}
+          class="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500"
+          title="Keep only selected frames">
+          Keep ({selectedFrames.size})
+        </button>
+      {/if}
+      {#if project.excludedFrames.length > 0}
+        <button onclick={handleRestoreAll}
+          class="rounded bg-zinc-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-zinc-500"
+          title="Restore all deleted frames">
+          Restore ({project.excludedFrames.length})
+        </button>
+      {/if}
     </div>
 
     <!-- Thumbnail strip -->
@@ -217,13 +317,17 @@
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="relative h-12 w-16 shrink-0 cursor-pointer overflow-hidden rounded border-2 {i === ui.currentFrame ? 'border-blue-400' : 'border-zinc-600'}"
-            onclick={() => ui.setFrame(i)}
+            class="relative h-12 w-16 shrink-0 cursor-pointer overflow-hidden rounded border-2
+              {i === ui.currentFrame ? 'border-blue-400' : selectedFrames.has(i) ? 'border-amber-400' : 'border-zinc-600'}"
+            onclick={(e) => toggleFrameSelection(i, e)}
           >
             {#if src}
               <img {src} alt="Frame {i + 1}" class="h-full w-full object-cover" />
             {:else}
               <div class="h-full w-full bg-zinc-700"></div>
+            {/if}
+            {#if selectedFrames.has(i)}
+              <div class="absolute inset-0 bg-amber-400/20"></div>
             {/if}
             <span class="absolute bottom-0 left-0 right-0 bg-black/50 text-center text-[9px] leading-3 text-zinc-300">
               {i + 1}
