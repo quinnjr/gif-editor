@@ -189,16 +189,37 @@ pub async fn export_project(
     let out = std::path::Path::new(&output_path);
     let layers = project.layers.clone();
 
+    let frame_indices: Vec<usize> = (0..project.visible_frame_count())
+        .filter_map(|li| project.logical_to_source(li))
+        .collect();
+    let delays = project.visible_delays();
+
     let on_progress = |frames_done: usize| {
         let _ = app.emit("export-progress", frames_done);
     };
 
     match settings.format {
         export::ExportFormat::Gif => {
-            export::export_gif(project.source.as_mut(), &layers, &settings, out, on_progress)
+            export::export_gif(
+                project.source.as_mut(),
+                &layers,
+                &settings,
+                out,
+                &frame_indices,
+                &delays,
+                on_progress,
+            )
         }
         export::ExportFormat::Mp4 | export::ExportFormat::WebM => {
-            export::export_video(project.source.as_mut(), &layers, &settings, out, on_progress)
+            export::export_video(
+                project.source.as_mut(),
+                &layers,
+                &settings,
+                out,
+                &frame_indices,
+                &delays,
+                on_progress,
+            )
         }
     }
 }

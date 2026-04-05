@@ -30,7 +30,10 @@ fn export_gif_produces_valid_file() {
     let output = tempfile::NamedTempFile::new().unwrap();
     let output_path = output.path().with_extension("gif");
     let settings = ExportSettings { format: ExportFormat::Gif, quality: 80, resize: None };
-    export_gif(&mut gif, &[], &settings, &output_path, |_| {}).unwrap();
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+    export_gif(&mut gif, &[], &settings, &output_path, &frame_indices, &delays, |_| {}).unwrap();
     let result = GifData::open(&output_path).unwrap();
     assert_eq!(result.frame_count(), 3);
     assert_eq!(result.dimensions(), (10, 10));
@@ -43,7 +46,10 @@ fn export_gif_with_resize() {
     let output = tempfile::NamedTempFile::new().unwrap();
     let output_path = output.path().with_extension("gif");
     let settings = ExportSettings { format: ExportFormat::Gif, quality: 80, resize: Some((20, 20)) };
-    export_gif(&mut gif, &[], &settings, &output_path, |_| {}).unwrap();
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+    export_gif(&mut gif, &[], &settings, &output_path, &frame_indices, &delays, |_| {}).unwrap();
     let result = GifData::open(&output_path).unwrap();
     assert_eq!(result.dimensions(), (20, 20));
 }
@@ -78,7 +84,10 @@ fn export_gif_with_image_and_text_layers() {
         resize: None,
     };
 
-    export_gif(&mut gif, &layers, &settings, &output_path, |_| {}).unwrap();
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+    export_gif(&mut gif, &layers, &settings, &output_path, &frame_indices, &delays, |_| {}).unwrap();
 
     // Verify output is a valid GIF with correct frame count and dimensions
     let result = GifData::open(&output_path).unwrap();

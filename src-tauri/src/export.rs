@@ -45,19 +45,24 @@ pub struct ExportSettings {
 // GIF export
 // ---------------------------------------------------------------------------
 
-/// Export `gif` composited with `layers` to a GIF file at `output_path`.
+/// Export `source` composited with `layers` to a GIF file at `output_path`.
+///
+/// Only the frames identified by `frame_indices` (source frame indices) are
+/// exported, in order, using the corresponding `delays` for each.
 ///
 /// `on_progress` is called after each frame is written with the number of
 /// frames completed so far (1-based).
 pub fn export_gif(
-    gif: &mut dyn FrameSource,
+    source: &mut dyn FrameSource,
     layers: &[Layer],
     settings: &ExportSettings,
     output_path: &Path,
+    frame_indices: &[usize],
+    delays: &[u16],
     on_progress: impl Fn(usize),
 ) -> Result<(), AppError> {
-    let frame_count = gif.frame_count();
-    let (src_w, src_h) = gif.dimensions();
+    let frame_count = frame_indices.len();
+    let (src_w, src_h) = source.dimensions();
     let (out_w, out_h) = settings
         .resize
         .unwrap_or((src_w, src_h));
@@ -74,9 +79,9 @@ pub fn export_gif(
         .set_repeat(gif::Repeat::Infinite)
         .map_err(|e| AppError::Export(e.to_string()))?;
 
-    for i in 0..frame_count {
-        let base = gif.get_frame(i)?;
-        let composited = compositor::composite_frame(&base, layers, i);
+    for (logical, &src_i) in frame_indices.iter().enumerate() {
+        let base = source.get_frame(src_i)?;
+        let composited = compositor::composite_frame(&base, layers, logical);
 
         // Resize if requested.
         let final_img = if (out_w, out_h) != (src_w, src_h) {
@@ -123,7 +128,7 @@ pub fn export_gif(
             .flat_map(|c| [c.r, c.g, c.b])
             .collect();
 
-        let delay = gif.delays()[i];
+        let delay = delays[logical];
         let mut frame = gif::Frame::from_palette_pixels(
             out_w as u16,
             out_h as u16,
@@ -137,7 +142,7 @@ pub fn export_gif(
             .write_frame(&frame)
             .map_err(|e| AppError::Export(e.to_string()))?;
 
-        on_progress(i + 1);
+        on_progress(logical + 1);
     }
 
     Ok(())
@@ -147,16 +152,22 @@ pub fn export_gif(
 // Video export (ffmpeg)
 // ---------------------------------------------------------------------------
 
-/// Export `gif` composited with `layers` to an MP4 or WebM file at
+/// Export `source` composited with `layers` to an MP4 or WebM file at
 /// `output_path` by writing PNG frames to a temp directory and invoking
 /// ffmpeg.
 ///
+/// Only the frames identified by `frame_indices` (source frame indices) are
+/// exported, in order, using the corresponding `delays` for average fps
+/// calculation.
+///
 /// Returns `AppError::Export` if ffmpeg is not on PATH or exits non-zero.
 pub fn export_video(
-    gif: &mut dyn FrameSource,
+    source: &mut dyn FrameSource,
     layers: &[Layer],
     settings: &ExportSettings,
     output_path: &Path,
+    frame_indices: &[usize],
+    delays: &[u16],
     on_progress: impl Fn(usize),
 ) -> Result<(), AppError> {
     if !ffmpeg_available() {
@@ -165,24 +176,24 @@ pub fn export_video(
         ));
     }
 
-    let frame_count = gif.frame_count();
-    let (src_w, src_h) = gif.dimensions();
+    let frame_count = frame_indices.len();
+    let (src_w, src_h) = source.dimensions();
     let (out_w, out_h) = settings.resize.unwrap_or((src_w, src_h));
 
     // Calculate average frame rate from delays (delay is in 1/100 s units).
     let avg_delay_cs: f64 = if frame_count == 0 {
         10.0
     } else {
-        gif.delays().iter().map(|&d| d as f64).sum::<f64>() / frame_count as f64
+        delays.iter().map(|&d| d as f64).sum::<f64>() / frame_count as f64
     };
     // Clamp to avoid divide-by-zero; minimum 1 cs = 100 fps.
     let fps = 100.0 / avg_delay_cs.max(1.0);
 
     let temp_dir = tempfile::TempDir::new()?;
 
-    for i in 0..frame_count {
-        let base = gif.get_frame(i)?;
-        let composited = compositor::composite_frame(&base, layers, i);
+    for (logical, &src_i) in frame_indices.iter().enumerate() {
+        let base = source.get_frame(src_i)?;
+        let composited = compositor::composite_frame(&base, layers, logical);
 
         let final_img = if (out_w, out_h) != (src_w, src_h) {
             imageops::resize(&composited, out_w, out_h, imageops::FilterType::Lanczos3)
@@ -190,12 +201,12 @@ pub fn export_video(
             composited
         };
 
-        let png_path = temp_dir.path().join(format!("frame_{i:06}.png"));
+        let png_path = temp_dir.path().join(format!("frame_{logical:06}.png"));
         final_img
             .save(&png_path)
             .map_err(|e| AppError::Export(e.to_string()))?;
 
-        on_progress(i + 1);
+        on_progress(logical + 1);
     }
 
     // Map quality 0–100 → CRF.
@@ -224,7 +235,7 @@ pub fn export_video(
         .into_owned();
 
     let output_str = output_path.to_string_lossy().into_owned();
-    let source_str = gif.source_path().to_string_lossy().into_owned();
+    let source_str = source.source_path().to_string_lossy().into_owned();
 
     // Audio codec matched to container: AAC for MP4, Opus for WebM.
     let audio_codec = match settings.format {
