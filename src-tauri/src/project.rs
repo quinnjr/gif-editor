@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
 use crate::image_source::ImageSource;
-use crate::layer::{ImageLayer, Layer, Stroke, TextLayer};
+use crate::layer::{ImageLayer, Keyframe, Layer, Stroke, TextLayer};
 use crate::video_decoder::VideoData;
 
 // ---------------------------------------------------------------------------
@@ -54,6 +54,7 @@ pub struct LayerInfo {
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
     pub source_path: Option<String>,
+    pub keyframes: Vec<Keyframe>,
 }
 
 impl From<&Layer> for LayerInfo {
@@ -79,6 +80,7 @@ impl From<&Layer> for LayerInfo {
                 source_width: Some(l.source_width),
                 source_height: Some(l.source_height),
                 source_path: l.source_path.clone(),
+                keyframes: l.keyframes.clone(),
             },
             Layer::Text(l) => LayerInfo {
                 id: l.id,
@@ -100,6 +102,7 @@ impl From<&Layer> for LayerInfo {
                 source_width: None,
                 source_height: None,
                 source_path: None,
+                keyframes: l.keyframes.clone(),
             },
         }
     }
@@ -123,6 +126,7 @@ pub struct LayerUpdate {
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
     pub stroke: Option<Stroke>,
+    pub keyframes: Option<Vec<Keyframe>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +566,9 @@ impl Project {
                 if let Some(v) = changes.visible {
                     l.visible = v;
                 }
+                if let Some(v) = changes.keyframes {
+                    l.keyframes = v;
+                }
                 // Text fields are silently ignored for image layers.
             }
             Layer::Text(l) => {
@@ -606,6 +613,9 @@ impl Project {
                 }
                 if changes.stroke.is_some() {
                     l.stroke = changes.stroke;
+                }
+                if let Some(v) = changes.keyframes {
+                    l.keyframes = v;
                 }
             }
         }

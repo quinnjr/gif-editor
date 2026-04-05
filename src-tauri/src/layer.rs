@@ -7,6 +7,42 @@ pub struct Stroke {
     pub width: f64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Keyframe {
+    pub frame: usize,
+    pub position: (f64, f64),
+    pub opacity: f64,
+}
+
+/// Interpolate keyframes for a given frame index.
+/// Returns None if keyframes is empty (caller uses base values).
+pub fn interpolate_keyframes(keyframes: &[Keyframe], frame_index: usize) -> Option<((f64, f64), f64)> {
+    if keyframes.is_empty() {
+        return None;
+    }
+    if frame_index <= keyframes[0].frame {
+        let kf = &keyframes[0];
+        return Some((kf.position, kf.opacity));
+    }
+    let last = &keyframes[keyframes.len() - 1];
+    if frame_index >= last.frame {
+        return Some((last.position, last.opacity));
+    }
+    for i in 0..keyframes.len() - 1 {
+        let a = &keyframes[i];
+        let b = &keyframes[i + 1];
+        if frame_index >= a.frame && frame_index <= b.frame {
+            let span = (b.frame - a.frame) as f64;
+            let t = if span > 0.0 { (frame_index - a.frame) as f64 / span } else { 0.0 };
+            let x = a.position.0 + t * (b.position.0 - a.position.0);
+            let y = a.position.1 + t * (b.position.1 - a.position.1);
+            let opacity = a.opacity + t * (b.opacity - a.opacity);
+            return Some(((x, y), opacity));
+        }
+    }
+    Some((last.position, last.opacity))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageLayer {
     pub id: Uuid,
@@ -29,6 +65,7 @@ pub struct ImageLayer {
     pub source_width: u32,
     pub source_height: u32,
     pub source_path: Option<String>,
+    pub keyframes: Vec<Keyframe>,
 }
 
 impl ImageLayer {
@@ -49,6 +86,7 @@ impl ImageLayer {
             source_width: width,
             source_height: height,
             source_path: None,
+            keyframes: Vec::new(),
         }
     }
 }
@@ -70,6 +108,7 @@ pub struct TextLayer {
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
+    pub keyframes: Vec<Keyframe>,
 }
 
 impl TextLayer {
@@ -94,6 +133,7 @@ impl TextLayer {
             opacity: 1.0,
             frame_range: (0, 0),
             visible: true,
+            keyframes: Vec::new(),
         }
     }
 }
@@ -124,6 +164,13 @@ impl Layer {
         match self {
             Layer::Image(l) => l.frame_range,
             Layer::Text(l) => l.frame_range,
+        }
+    }
+
+    pub fn keyframes(&self) -> &[Keyframe] {
+        match self {
+            Layer::Image(l) => &l.keyframes,
+            Layer::Text(l) => &l.keyframes,
         }
     }
 }

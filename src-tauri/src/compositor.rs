@@ -1,6 +1,6 @@
 use image::{Rgba, RgbaImage};
 
-use crate::layer::Layer;
+use crate::layer::{Layer, interpolate_keyframes};
 
 /// Composite all visible, in-range layers onto a clone of `base` for the
 /// given `frame_index`.  Returns a new image; the base is not mutated.
@@ -35,20 +35,25 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                 let kx = img_layer.skew_x;
                 let ky = img_layer.skew_y;
 
+                let (pos, opacity) = match interpolate_keyframes(&img_layer.keyframes, frame_index) {
+                    Some((p, o)) => (p, o),
+                    None => (img_layer.position, img_layer.opacity),
+                };
+
                 if is_identity(sx, sy, kx, ky) {
                     composite_rgba_buffer(
                         &mut target,
                         src,
-                        img_layer.position,
-                        img_layer.opacity,
+                        pos,
+                        opacity,
                     );
                 } else {
                     affine_composite(
                         &mut target,
                         src,
-                        img_layer.position,
+                        pos,
                         sx, sy, kx, ky,
-                        img_layer.opacity,
+                        opacity,
                     );
                 }
             }
@@ -59,20 +64,25 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     let kx = text_layer.skew_x;
                     let ky = text_layer.skew_y;
 
+                    let (pos, opacity) = match interpolate_keyframes(&text_layer.keyframes, frame_index) {
+                        Some((p, o)) => (p, o),
+                        None => (text_layer.position, text_layer.opacity),
+                    };
+
                     if is_identity(sx, sy, kx, ky) {
                         composite_rgba_buffer(
                             &mut target,
                             &text_img,
-                            text_layer.position,
-                            text_layer.opacity,
+                            pos,
+                            opacity,
                         );
                     } else {
                         affine_composite(
                             &mut target,
                             &text_img,
-                            text_layer.position,
+                            pos,
                             sx, sy, kx, ky,
-                            text_layer.opacity,
+                            opacity,
                         );
                     }
                 }
