@@ -1,6 +1,7 @@
 // Project state — owns the open GIF, the layer stack, and a temp directory
 // for decoded frame PNGs used by the compositor and the frontend preview.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -132,6 +133,7 @@ pub struct Project {
     pub source: Box<dyn FrameSource>,
     pub layers: Vec<Layer>,
     pub temp_dir: tempfile::TempDir,
+    pub excluded_frames: BTreeSet<usize>,
 }
 
 /// Global app state: at most one project open at a time.
@@ -164,34 +166,243 @@ impl Project {
         };
 
         let (width, height) = source.dimensions();
-        let metadata = GifMetadata {
-            frame_count: source.frame_count(),
-            width,
-            height,
-            delays: source.delays().to_vec(),
-        };
         let temp_dir = tempfile::TempDir::new()?;
         let project = Project {
             source,
             layers: Vec::new(),
             temp_dir,
+            excluded_frames: BTreeSet::new(),
         };
+        let metadata = project.visible_metadata();
         Ok((project, metadata))
+    }
+
+    // -----------------------------------------------------------------------
+    // Frame index mapping
+    // -----------------------------------------------------------------------
+
+    pub fn visible_frame_count(&self) -> usize {
+        self.source.frame_count() - self.excluded_frames.len()
+    }
+
+    pub fn visible_delays(&self) -> Vec<u16> {
+        let all_delays = self.source.delays();
+        (0..self.source.frame_count())
+            .filter(|i| !self.excluded_frames.contains(i))
+            .map(|i| all_delays[i])
+            .collect()
+    }
+
+    pub fn visible_metadata(&self) -> GifMetadata {
+        let (width, height) = self.source.dimensions();
+        GifMetadata {
+            frame_count: self.visible_frame_count(),
+            width,
+            height,
+            delays: self.visible_delays(),
+        }
+    }
+
+    pub fn logical_to_source(&self, logical: usize) -> Option<usize> {
+        let total = self.source.frame_count();
+        let mut count = 0usize;
+        for src in 0..total {
+            if self.excluded_frames.contains(&src) {
+                continue;
+            }
+            if count == logical {
+                return Some(src);
+            }
+            count += 1;
+        }
+        None
+    }
+
+    pub fn source_to_logical(&self, source: usize) -> Option<usize> {
+        if self.excluded_frames.contains(&source) {
+            return None;
+        }
+        let logical = (0..source)
+            .filter(|i| !self.excluded_frames.contains(i))
+            .count();
+        Some(logical)
+    }
+
+    // -----------------------------------------------------------------------
+    // Frame deletion / restoration
+    // -----------------------------------------------------------------------
+
+    pub fn delete_frames(&mut self, logical_indices: &[usize]) -> Result<GifMetadata, AppError> {
+        let mut source_indices: Vec<usize> = Vec::new();
+        for &li in logical_indices {
+            if let Some(si) = self.logical_to_source(li) {
+                source_indices.push(si);
+            }
+        }
+
+        let new_excluded_count = self.excluded_frames.len() + source_indices.len();
+        if new_excluded_count >= self.source.frame_count() {
+            return Err(AppError::FrameDeletion(
+                "cannot delete all frames; at least one must remain".to_string(),
+            ));
+        }
+
+        let layer_source_ranges: Vec<(usize, usize)> = self
+            .layers
+            .iter()
+            .map(|l| {
+                let (ls, le) = l.frame_range();
+                let ss = self.logical_to_source(ls).unwrap_or(0);
+                let se = self.logical_to_source(le).unwrap_or(0);
+                (ss, se)
+            })
+            .collect();
+
+        for si in &source_indices {
+            self.excluded_frames.insert(*si);
+        }
+
+        self.remap_layer_ranges(&layer_source_ranges);
+        Ok(self.visible_metadata())
+    }
+
+    pub fn restore_frames(&mut self, source_indices: &[usize]) -> Result<GifMetadata, AppError> {
+        // Capture each layer's source range, then expand it to include any
+        // contiguous restored frames that were previously excluded at the
+        // boundaries.  This allows a delete→restore round-trip to recover the
+        // original layer extent.
+        let restoring: std::collections::BTreeSet<usize> =
+            source_indices.iter().copied().collect();
+
+        let layer_source_ranges: Vec<(usize, usize)> = self
+            .layers
+            .iter()
+            .map(|l| {
+                let (ls, le) = l.frame_range();
+                let mut ss = self.logical_to_source(ls).unwrap_or(0);
+                let mut se = self.logical_to_source(le).unwrap_or(0);
+
+                // Extend start backward through contiguously restored frames.
+                loop {
+                    if ss == 0 {
+                        break;
+                    }
+                    let prev = ss - 1;
+                    if restoring.contains(&prev) && self.excluded_frames.contains(&prev) {
+                        ss = prev;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Extend end forward through contiguously restored frames.
+                let total = self.source.frame_count();
+                loop {
+                    let next = se + 1;
+                    if next >= total {
+                        break;
+                    }
+                    if restoring.contains(&next) && self.excluded_frames.contains(&next) {
+                        se = next;
+                    } else {
+                        break;
+                    }
+                }
+
+                (ss, se)
+            })
+            .collect();
+
+        for si in source_indices {
+            self.excluded_frames.remove(si);
+        }
+
+        self.remap_layer_ranges(&layer_source_ranges);
+        Ok(self.visible_metadata())
+    }
+
+    pub fn get_excluded_frames(&self) -> Vec<usize> {
+        self.excluded_frames.iter().copied().collect()
+    }
+
+    fn remap_layer_ranges(&mut self, source_ranges: &[(usize, usize)]) {
+        let visible_count = self.visible_frame_count();
+
+        // Compute all new ranges before mutating layers to satisfy the borrow
+        // checker: the mapping helpers only borrow self immutably.
+        let new_ranges: Vec<(usize, usize)> = source_ranges
+            .iter()
+            .map(|&(src_start, src_end)| {
+                let new_start = self
+                    .source_to_logical(src_start)
+                    .or_else(|| self.find_nearest_logical(src_start, true));
+                let new_end = self
+                    .source_to_logical(src_end)
+                    .or_else(|| self.find_nearest_logical(src_end, false));
+
+                match (new_start, new_end) {
+                    (Some(s), Some(e)) if s <= e => (s, e),
+                    (Some(s), Some(_)) => (s, s),
+                    _ => (0, visible_count.saturating_sub(1)),
+                }
+            })
+            .collect();
+
+        for (layer, (ns, ne)) in self.layers.iter_mut().zip(new_ranges) {
+            match layer {
+                Layer::Image(l) => l.frame_range = (ns, ne),
+                Layer::Text(l) => l.frame_range = (ns, ne),
+            }
+        }
+    }
+
+    fn find_nearest_logical(&self, source: usize, search_forward: bool) -> Option<usize> {
+        let total = self.source.frame_count();
+        if search_forward {
+            for s in source..total {
+                if let Some(l) = self.source_to_logical(s) {
+                    return Some(l);
+                }
+            }
+            for s in (0..source).rev() {
+                if let Some(l) = self.source_to_logical(s) {
+                    return Some(l);
+                }
+            }
+        } else {
+            for s in (0..=source).rev() {
+                if let Some(l) = self.source_to_logical(s) {
+                    return Some(l);
+                }
+            }
+            for s in source..total {
+                if let Some(l) = self.source_to_logical(s) {
+                    return Some(l);
+                }
+            }
+        }
+        None
     }
 
     // -----------------------------------------------------------------------
     // Frame access
     // -----------------------------------------------------------------------
 
-    /// Return the filesystem path to a PNG of frame `index`.
+    /// Return the filesystem path to a PNG of frame `logical_index`.
     ///
     /// The PNG is created on first access and cached by file existence so
     /// subsequent calls are cheap.
-    pub fn get_frame_png_path(&mut self, index: usize) -> Result<String, AppError> {
-        let png_path: PathBuf = self.temp_dir.path().join(format!("frame_{index:05}.png"));
+    pub fn get_frame_png_path(&mut self, logical_index: usize) -> Result<String, AppError> {
+        let src_index = self.logical_to_source(logical_index).ok_or_else(|| {
+            AppError::FrameDeletion(format!(
+                "logical frame {logical_index} out of bounds (visible={})",
+                self.visible_frame_count()
+            ))
+        })?;
+        let png_path: PathBuf = self.temp_dir.path().join(format!("frame_{src_index:05}.png"));
 
         if !png_path.exists() {
-            let frame: RgbaImage = self.source.get_frame(index)?;
+            let frame: RgbaImage = self.source.get_frame(src_index)?;
             frame
                 .save(&png_path)
                 .map_err(|e| AppError::Export(e.to_string()))?;
@@ -212,7 +423,7 @@ impl Project {
             .to_rgba8();
 
         let (w, h) = img.dimensions();
-        let frame_count = self.source.frame_count();
+        let frame_count = self.visible_frame_count();
         let file_name = Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -237,7 +448,7 @@ impl Project {
         color: Option<[u8; 4]>,
         stroke: Option<Stroke>,
     ) -> LayerInfo {
-        let frame_count = self.source.frame_count();
+        let frame_count = self.visible_frame_count();
         let mut layer = TextLayer::new(text);
         if let Some(ff) = font_family {
             layer.font_family = ff;
@@ -376,16 +587,22 @@ impl Project {
         Ok(())
     }
 
-    /// Composite all layers onto the GIF frame at `frame_index`, save the
+    /// Composite all layers onto the GIF frame at `logical_index`, save the
     /// result as a PNG in the temp directory, and return its path.
-    pub fn render_composite(&mut self, frame_index: usize) -> Result<String, AppError> {
-        let base: RgbaImage = self.source.get_frame(frame_index)?;
-        let composited = composite_frame(&base, &self.layers, frame_index);
+    pub fn render_composite(&mut self, logical_index: usize) -> Result<String, AppError> {
+        let src_index = self.logical_to_source(logical_index).ok_or_else(|| {
+            AppError::FrameDeletion(format!(
+                "logical frame {logical_index} out of bounds (visible={})",
+                self.visible_frame_count()
+            ))
+        })?;
+        let base: RgbaImage = self.source.get_frame(src_index)?;
+        let composited = composite_frame(&base, &self.layers, logical_index);
 
         let out_path: PathBuf = self
             .temp_dir
             .path()
-            .join(format!("composite_{frame_index:05}.png"));
+            .join(format!("composite_{src_index:05}.png"));
         composited
             .save(&out_path)
             .map_err(|e| AppError::Export(e.to_string()))?;

@@ -130,6 +130,41 @@ pub async fn get_layers(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>
     Ok(project.get_layers())
 }
 
+/// Soft-delete frames by logical index.  Returns updated metadata reflecting
+/// the new visible frame count and delay list.
+#[tauri::command]
+pub async fn delete_frames(
+    indices: Vec<usize>,
+    state: State<'_, ProjectState>,
+) -> Result<GifMetadata, AppError> {
+    let mut guard = state.lock().unwrap();
+    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    project.delete_frames(&indices)
+}
+
+/// Restore previously excluded frames by source index.  Returns updated
+/// metadata reflecting the new visible frame count and delay list.
+#[tauri::command]
+pub async fn restore_frames(
+    source_indices: Vec<usize>,
+    state: State<'_, ProjectState>,
+) -> Result<GifMetadata, AppError> {
+    let mut guard = state.lock().unwrap();
+    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    project.restore_frames(&source_indices)
+}
+
+/// Return the set of source frame indices currently excluded from the
+/// visible timeline.
+#[tauri::command]
+pub async fn get_excluded_frames(
+    state: State<'_, ProjectState>,
+) -> Result<Vec<usize>, AppError> {
+    let guard = state.lock().unwrap();
+    let project = guard.as_ref().ok_or(AppError::NoProject)?;
+    Ok(project.get_excluded_frames())
+}
+
 /// Return the list of font families available to the text renderer.
 #[tauri::command]
 pub fn get_system_fonts() -> Vec<String> {

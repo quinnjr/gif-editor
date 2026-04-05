@@ -45,6 +45,9 @@ pub fn run() {
             commands::get_system_fonts,
             commands::export_project,
             commands::check_ffmpeg,
+            commands::delete_frames,
+            commands::restore_frames,
+            commands::get_excluded_frames,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
