@@ -10,6 +10,12 @@ export interface Stroke {
   width: number;
 }
 
+export interface Keyframe {
+  frame: number;
+  position: [number, number];
+  opacity: number;
+}
+
 export interface LayerInfo {
   id: string;
   name: string;
@@ -30,6 +36,7 @@ export interface LayerInfo {
   source_width?: number;
   source_height?: number;
   source_path?: string;
+  keyframes: Keyframe[];
 }
 
 export interface LayerUpdate {
@@ -47,6 +54,7 @@ export interface LayerUpdate {
   font_size?: number;
   color?: [number, number, number, number];
   stroke?: Stroke | null;
+  keyframes?: Keyframe[];
 }
 
 export type ExportFormat = 'Gif' | 'Mp4' | 'WebM';

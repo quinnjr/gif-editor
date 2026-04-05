@@ -4,7 +4,42 @@
   import { renderFrame } from '$lib/utils/canvas-renderer';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import * as cmd from '$lib/commands';
-  import type { LayerInfo } from '$lib/types';
+  import type { LayerInfo, Keyframe } from '$lib/types';
+
+  function interpolateKeyframes(
+    keyframes: Keyframe[],
+    frameIndex: number,
+  ): { position: [number, number]; opacity: number } | null {
+    if (!keyframes || keyframes.length === 0) return null;
+    if (frameIndex <= keyframes[0].frame) {
+      return { position: keyframes[0].position, opacity: keyframes[0].opacity };
+    }
+    const last = keyframes[keyframes.length - 1];
+    if (frameIndex >= last.frame) {
+      return { position: last.position, opacity: last.opacity };
+    }
+    for (let i = 0; i < keyframes.length - 1; i++) {
+      const a = keyframes[i];
+      const b = keyframes[i + 1];
+      if (frameIndex >= a.frame && frameIndex <= b.frame) {
+        const span = b.frame - a.frame;
+        const t = span > 0 ? (frameIndex - a.frame) / span : 0;
+        return {
+          position: [
+            a.position[0] + t * (b.position[0] - a.position[0]),
+            a.position[1] + t * (b.position[1] - a.position[1]),
+          ],
+          opacity: a.opacity + t * (b.opacity - a.opacity),
+        };
+      }
+    }
+    return { position: last.position, opacity: last.opacity };
+  }
+
+  function upsertKeyframe(keyframes: Keyframe[], kf: Keyframe): Keyframe[] {
+    const filtered = keyframes.filter((k) => k.frame !== kf.frame);
+    return [...filtered, kf].sort((a, b) => a.frame - b.frame);
+  }
 
   let canvas = $state<HTMLCanvasElement | undefined>(undefined);
   let ctx = $state<CanvasRenderingContext2D | null>(null);
@@ -89,7 +124,8 @@
   }
 
   function getTransformedCorners(layer: LayerInfo): [number, number][] {
-    const [tx, ty] = layer.position;
+    const interp = interpolateKeyframes(layer.keyframes, ui.currentFrame);
+    const [tx, ty] = interp ? interp.position : layer.position;
     const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
     let w: number, h: number;
@@ -147,7 +183,8 @@
       const [start, end] = layer.frame_range;
       if (frame < start || frame > end) continue;
 
-      const [tx, ty] = layer.position;
+      const interp = interpolateKeyframes(layer.keyframes, frame);
+      const [tx, ty] = interp ? interp.position : layer.position;
       const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
       // Inverse of [[sx, kx], [ky, sy]]
@@ -301,7 +338,30 @@
 
     const layer = project.layers.find((l) => l.id === dragLayerId);
     if (layer) {
-      await project.updateLayer(dragLayerId, { position: layer.position });
+      const newPos = layer.position;
+      const frame = ui.currentFrame;
+
+      if (layer.keyframes.length > 0) {
+        // Update or insert keyframe at current frame
+        const interp = interpolateKeyframes(layer.keyframes, frame);
+        const currentOpacity = interp ? interp.opacity : layer.opacity;
+        const newKfs = upsertKeyframe(layer.keyframes, {
+          frame,
+          position: newPos,
+          opacity: currentOpacity,
+        });
+        await project.updateLayer(dragLayerId, { keyframes: newKfs });
+      } else if (frame > 0) {
+        // First keyframe creation: seed frame 0, then current frame
+        const kfs: Keyframe[] = [
+          { frame: 0, position: [dragOriginX, dragOriginY], opacity: layer.opacity },
+          { frame, position: newPos, opacity: layer.opacity },
+        ];
+        await project.updateLayer(dragLayerId, { keyframes: kfs });
+      } else {
+        // Frame 0, no keyframes — just update position directly
+        await project.updateLayer(dragLayerId, { position: newPos });
+      }
     }
 
     isDragging = false;

@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import type { LayerInfo } from '$lib/types';
+import type { LayerInfo, Keyframe } from '$lib/types';
 
 const imageCache = new Map<string, HTMLImageElement>();
 
@@ -11,6 +11,40 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = reject;
     img.src = src;
   });
+}
+
+function interpolateKeyframes(
+  keyframes: Keyframe[],
+  frameIndex: number,
+): { position: [number, number]; opacity: number } | null {
+  if (!keyframes || keyframes.length === 0) return null;
+
+  if (frameIndex <= keyframes[0].frame) {
+    return { position: keyframes[0].position, opacity: keyframes[0].opacity };
+  }
+
+  const last = keyframes[keyframes.length - 1];
+  if (frameIndex >= last.frame) {
+    return { position: last.position, opacity: last.opacity };
+  }
+
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    const a = keyframes[i];
+    const b = keyframes[i + 1];
+    if (frameIndex >= a.frame && frameIndex <= b.frame) {
+      const span = b.frame - a.frame;
+      const t = span > 0 ? (frameIndex - a.frame) / span : 0;
+      return {
+        position: [
+          a.position[0] + t * (b.position[0] - a.position[0]),
+          a.position[1] + t * (b.position[1] - a.position[1]),
+        ],
+        opacity: a.opacity + t * (b.opacity - a.opacity),
+      };
+    }
+  }
+
+  return { position: last.position, opacity: last.opacity };
 }
 
 export async function renderFrame(
@@ -33,10 +67,12 @@ export async function renderFrame(
     const [start, end] = layer.frame_range;
     if (frameIndex < start || frameIndex > end) continue;
 
-    const [tx, ty] = layer.position;
+    const interp = interpolateKeyframes(layer.keyframes, frameIndex);
+    const [tx, ty] = interp ? interp.position : layer.position;
+    const layerOpacity = interp ? interp.opacity : layer.opacity;
 
     ctx.save();
-    ctx.globalAlpha = layer.opacity;
+    ctx.globalAlpha = layerOpacity;
     // Apply affine: ctx.transform(a, b, c, d, e, f)
     // a=scale_x, b=skew_y, c=skew_x, d=scale_y, e=tx, f=ty
     ctx.transform(layer.scale_x, layer.skew_y, layer.skew_x, layer.scale_y, tx, ty);
