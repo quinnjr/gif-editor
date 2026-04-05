@@ -175,6 +175,15 @@
     };
   });
 
+  function handleThumbnailContextMenu(index: number, e: MouseEvent) {
+    e.preventDefault();
+    if (!selectedLayer) return;
+    const kfIndex = selectedLayer.keyframes.findIndex((kf) => kf.frame === index);
+    if (kfIndex === -1) return;
+    const newKfs = selectedLayer.keyframes.filter((kf) => kf.frame !== index);
+    project.updateLayer(selectedLayer.id, { keyframes: newKfs });
+  }
+
   function stepBackward() {
     if (!project.metadata) return;
     const prev = (ui.currentFrame - 1 + project.metadata.frame_count) % project.metadata.frame_count;
@@ -320,6 +329,7 @@
             class="relative h-12 w-16 shrink-0 cursor-pointer overflow-hidden rounded border-2
               {i === ui.currentFrame ? 'border-blue-400' : selectedFrames.has(i) ? 'border-amber-400' : 'border-zinc-600'}"
             onclick={(e) => toggleFrameSelection(i, e)}
+            oncontextmenu={(e) => handleThumbnailContextMenu(i, e)}
           >
             {#if src}
               <img {src} alt="Frame {i + 1}" class="h-full w-full object-cover" />
@@ -328,6 +338,10 @@
             {/if}
             {#if selectedFrames.has(i)}
               <div class="absolute inset-0 bg-amber-400/20"></div>
+            {/if}
+            {#if selectedLayer && selectedLayer.keyframes.some((kf) => kf.frame === i)}
+              <div class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-yellow-400"
+                title="Keyframe">&#9670;</div>
             {/if}
             <span class="absolute bottom-0 left-0 right-0 bg-black/50 text-center text-[9px] leading-3 text-zinc-300">
               {i + 1}
