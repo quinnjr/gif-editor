@@ -76,6 +76,7 @@ function makeLayer(overrides: Partial<LayerInfo> = {}): LayerInfo {
     scale_y: 1,
     skew_x: 0,
     skew_y: 0,
+    rotation: 0,
     opacity: 1,
     frame_range: [0, 9],
     visible: true,
@@ -436,5 +437,26 @@ describe('renderFrame', () => {
     const strokeTextCall = ctx._calls.find((c) => c.method === 'strokeText');
     expect(strokeTextCall).toBeDefined();
     expect(strokeTextCall!.args[0]).toBe('');
+  });
+
+  describe('rotation transform', () => {
+    it('applies rotation via combined matrix to ctx.transform', async () => {
+      const layer = makeLayer({
+        rotation: 90,
+        scale_x: 1,
+        scale_y: 1,
+        skew_x: 0,
+        skew_y: 0,
+      });
+      await renderFrame(ctx, '/frame0.png', [layer], 0);
+      // ctx.transform should have been called with cos(90°)≈0, sin(90°)≈1 matrix
+      const transformCall = ctx._calls.find((c) => c.method === 'transform');
+      expect(transformCall).toBeDefined();
+      const call = transformCall!.args;
+      // a = cos*sx - sin*ky = 0*1 - 1*0 = 0
+      expect(call[0]).toBeCloseTo(0, 4);
+      // b = sin*sx + cos*ky = 1*1 + 0*0 = 1
+      expect(call[1]).toBeCloseTo(1, 4);
+    });
   });
 });

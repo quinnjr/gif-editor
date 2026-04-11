@@ -73,9 +73,21 @@ export async function renderFrame(
 
     ctx.save();
     ctx.globalAlpha = layerOpacity;
-    // Apply affine: ctx.transform(a, b, c, d, e, f)
-    // a=scale_x, b=skew_y, c=skew_x, d=scale_y, e=tx, f=ty
-    ctx.transform(layer.scale_x, layer.skew_y, layer.skew_x, layer.scale_y, tx, ty);
+    // Build combined rotation × scale/skew matrix matching compositor.rs.
+    // dst_x = a*src_x + c*src_y + tx
+    // dst_y = b*src_x + d*src_y + ty
+    const theta = (layer.rotation ?? 0) * (Math.PI / 180);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const sx = layer.scale_x;
+    const sy = layer.scale_y;
+    const kx = layer.skew_x;
+    const ky = layer.skew_y;
+    const a = cosT * sx - sinT * ky;
+    const b = sinT * sx + cosT * ky;
+    const c = cosT * kx - sinT * sy;
+    const d = sinT * kx + cosT * sy;
+    ctx.transform(a, b, c, d, tx, ty);
 
     if (layer.layer_type === 'image') {
       if (!layer.source_path) { ctx.restore(); continue; }
