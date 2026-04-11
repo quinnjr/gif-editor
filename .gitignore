@@ -45,3 +45,4 @@ coverage/
 # Flatpak build artifacts
 flatpak-build/
 .flatpak-builder/
+.worktrees/
