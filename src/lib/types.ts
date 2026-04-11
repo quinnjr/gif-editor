@@ -34,6 +34,8 @@ export interface LayerInfo {
   font_size?: number;
   color?: [number, number, number, number];
   stroke?: Stroke | null;
+  text_align?: string;
+  max_width?: number | null;
   source_width?: number;
   source_height?: number;
   source_path?: string;
@@ -56,6 +58,8 @@ export interface LayerUpdate {
   font_size?: number;
   color?: [number, number, number, number];
   stroke?: Stroke | null;
+  text_align?: string;
+  max_width?: number | null;
   keyframes?: Keyframe[];
 }
 

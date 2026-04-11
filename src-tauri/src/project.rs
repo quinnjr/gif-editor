@@ -51,6 +51,8 @@ pub struct LayerInfo {
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
     pub stroke: Option<Stroke>,
+    pub text_align: Option<String>,
+    pub max_width: Option<f64>,
     // Image-specific (None for text layers)
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
@@ -79,6 +81,8 @@ impl From<&Layer> for LayerInfo {
                 font_size: None,
                 color: None,
                 stroke: None,
+                text_align: None,
+                max_width: None,
                 source_width: Some(l.source_width),
                 source_height: Some(l.source_height),
                 source_path: l.source_path.clone(),
@@ -102,6 +106,8 @@ impl From<&Layer> for LayerInfo {
                 font_size: Some(l.font_size),
                 color: Some(l.color),
                 stroke: l.stroke.clone(),
+                text_align: Some(l.text_align.clone()),
+                max_width: l.max_width,
                 source_width: None,
                 source_height: None,
                 source_path: None,
@@ -130,6 +136,8 @@ pub struct LayerUpdate {
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
     pub stroke: Option<Stroke>,
+    pub text_align: Option<String>,
+    pub max_width: Option<f64>,
     pub keyframes: Option<Vec<Keyframe>>,
 }
 
@@ -740,6 +748,12 @@ impl Project {
                 }
                 if changes.stroke.is_some() {
                     l.stroke = changes.stroke;
+                }
+                if let Some(v) = changes.text_align {
+                    l.text_align = v;
+                }
+                if changes.max_width.is_some() {
+                    l.max_width = changes.max_width;
                 }
                 if let Some(v) = changes.keyframes {
                     l.keyframes = v;

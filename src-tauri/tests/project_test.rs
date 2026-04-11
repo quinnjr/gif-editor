@@ -358,6 +358,8 @@ fn update_image_layer_all_fields() {
             color: [5, 6, 7, 8],
             width: 10.0,
         }),
+        text_align: None,
+        max_width: None,
         keyframes: Some(vec![Keyframe {
             frame: 1,
             position: (10.0, 20.0),
@@ -411,6 +413,8 @@ fn update_text_layer_all_fields() {
         font_size: Some(36.0),
         color: Some([128, 64, 32, 200]),
         stroke: Some(new_stroke),
+        text_align: Some("left".to_string()),
+        max_width: Some(200.0),
         keyframes: Some(vec![
             Keyframe {
                 frame: 0,
@@ -464,6 +468,8 @@ fn update_layer_not_found() {
         font_size: None,
         color: None,
         stroke: None,
+        text_align: None,
+        max_width: None,
         keyframes: None,
     };
     assert!(project.update_layer(bogus_id, update).is_err());
