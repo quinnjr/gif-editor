@@ -17,9 +17,12 @@ finish-args:
   - --device=dri
   - --filesystem=home
   - --filesystem=/tmp
+  - --filesystem=xdg-run/gvfsd
   - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1
-  - --talk-name=org.freedesktop.portal.Desktop
-  - --talk-name=org.freedesktop.portal.FileChooser
+  - --own-name=org.mpris.MediaPlayer2.gif-editor
+  - --talk-name=org.freedesktop.portal.*
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.a11y.Bus
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
