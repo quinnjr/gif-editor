@@ -154,10 +154,42 @@ impl TextLayer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlareLayer {
+    pub id: Uuid,
+    pub name: String,
+    pub position: (f64, f64),
+    pub intensity: f64,
+    pub scale: f64,
+    pub pulse_speed: f64,
+    pub frame_range: (usize, usize),
+    pub visible: bool,
+    pub opacity: f64,
+    pub keyframes: Vec<Keyframe>,
+}
+
+impl FlareLayer {
+    pub fn new() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Solar Flare".to_string(),
+            position: (0.0, 0.0),
+            intensity: 1.0,
+            scale: 1.0,
+            pulse_speed: 0.15,
+            frame_range: (0, 0),
+            visible: true,
+            opacity: 1.0,
+            keyframes: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Layer {
     Image(ImageLayer),
     Text(TextLayer),
+    Flare(FlareLayer),
 }
 
 impl Layer {
@@ -165,6 +197,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.id,
             Layer::Text(l) => l.id,
+            Layer::Flare(l) => l.id,
         }
     }
 
@@ -172,6 +205,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.visible,
             Layer::Text(l) => l.visible,
+            Layer::Flare(l) => l.visible,
         }
     }
 
@@ -179,6 +213,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.frame_range,
             Layer::Text(l) => l.frame_range,
+            Layer::Flare(l) => l.frame_range,
         }
     }
 
@@ -186,6 +221,7 @@ impl Layer {
         match self {
             Layer::Image(l) => &l.keyframes,
             Layer::Text(l) => &l.keyframes,
+            Layer::Flare(l) => &l.keyframes,
         }
     }
 
@@ -193,6 +229,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.scale_x,
             Layer::Text(l) => l.scale_x,
+            Layer::Flare(_) => 1.0,
         }
     }
 
@@ -200,6 +237,23 @@ impl Layer {
         match self {
             Layer::Image(l) => l.scale_y,
             Layer::Text(l) => l.scale_y,
+            Layer::Flare(_) => 1.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flare_layer_new_has_correct_defaults() {
+        let layer = FlareLayer::new();
+        assert_eq!(layer.intensity, 1.0);
+        assert_eq!(layer.scale, 1.0);
+        assert_eq!(layer.pulse_speed, 0.15);
+        assert!(layer.visible);
+        assert_eq!(layer.opacity, 1.0);
+        assert!(layer.keyframes.is_empty());
     }
 }
