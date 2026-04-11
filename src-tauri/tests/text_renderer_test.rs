@@ -99,3 +99,12 @@ fn center_aligned_wider_than_single_character() {
     assert!(result.width() > 0);
     assert!(result.height() > 0);
 }
+
+#[test]
+fn renders_with_impact_family_uses_anton_font() {
+    // "Impact" is now served by Anton.ttf; should render without error.
+    let mut layer = TextLayer::new("MEME".to_string());
+    layer.font_family = "Impact".to_string();
+    let result = render_text(&layer).unwrap();
+    assert!(result.width() > 0);
+}
