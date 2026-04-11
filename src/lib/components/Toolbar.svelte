@@ -44,6 +44,30 @@
     }
   }
 
+  async function handleMemeText() {
+    if (!project.metadata) return;
+    const { width, height } = project.metadata;
+    try {
+      // Top text layer
+      const top = await project.addTextLayer('TOP TEXT');
+      await project.updateLayer(top.id, {
+        position: [0, Math.round(height * 0.05)],
+        text_align: 'center',
+        max_width: width,
+      });
+      // Bottom text layer
+      const bot = await project.addTextLayer('BOTTOM TEXT');
+      await project.updateLayer(bot.id, {
+        position: [0, Math.round(height * 0.88)],
+        text_align: 'center',
+        max_width: width,
+      });
+      ui.selectLayer(bot.id);
+    } catch (e) {
+      onerror(`Failed to add meme text: ${e}`);
+    }
+  }
+
   async function handleUndo() {
     try { await project.undo(); } catch (e) { onerror(`Undo failed: ${e}`); }
   }
@@ -64,6 +88,10 @@
   <button onclick={handleAddText} disabled={!project.isOpen}
     class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40">
     Add Text
+  </button>
+  <button onclick={handleMemeText} disabled={!project.isOpen}
+    class="rounded bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:opacity-40">
+    Meme Text
   </button>
   <button onclick={handleUndo} disabled={!project.isOpen}
     class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"

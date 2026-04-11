@@ -121,6 +121,30 @@
         <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: ((layer.rotation - 90) + 360) % 360 }); }}
           class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">-90</button>
       </label>
+      {#if layer.layer_type === 'text'}
+        <div class="flex items-center gap-1 text-xs">
+          <span class="text-zinc-400">Align</span>
+          {#each ['left', 'center', 'right'] as align (align)}
+            <button
+              onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { text_align: align }); }}
+              class="rounded px-1.5 py-0.5 text-xs {layer.text_align === align ? 'bg-blue-600 text-white' : 'bg-zinc-600 text-zinc-300 hover:bg-zinc-500'}">
+              {align[0].toUpperCase()}
+            </button>
+          {/each}
+        </div>
+        <label class="flex items-center gap-2 text-xs text-zinc-300">
+          Max width
+          <input type="number" min="0" step="10"
+            value={layer.max_width ?? ''}
+            placeholder="none"
+            onchange={async (e) => {
+              const val = (e.target as HTMLInputElement).value;
+              await project.updateLayer(layer.id, { max_width: val ? parseFloat(val) : null });
+            }}
+            class="w-20 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white" />
+          px
+        </label>
+      {/if}
     </div>
   {/if}
 </div>
