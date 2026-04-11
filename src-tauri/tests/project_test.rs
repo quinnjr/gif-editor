@@ -346,6 +346,7 @@ fn update_image_layer_all_fields() {
         scale_y: Some(2.0),
         skew_x: Some(0.5),
         skew_y: Some(0.6),
+        rotation: Some(45.0),
         opacity: Some(0.3),
         frame_range: Some((1, 2)),
         visible: Some(false),
@@ -371,6 +372,7 @@ fn update_image_layer_all_fields() {
     assert_eq!(info.scale_y, 2.0);
     assert_eq!(info.skew_x, 0.5);
     assert_eq!(info.skew_y, 0.6);
+    assert_eq!(info.rotation, 45.0);
     assert_eq!(info.opacity, 0.3);
     assert_eq!(info.frame_range, (1, 2));
     assert!(!info.visible);
@@ -400,6 +402,7 @@ fn update_text_layer_all_fields() {
         scale_y: Some(0.8),
         skew_x: Some(0.2),
         skew_y: Some(0.3),
+        rotation: Some(90.0),
         opacity: Some(0.6),
         frame_range: Some((0, 1)),
         visible: Some(false),
@@ -429,6 +432,7 @@ fn update_text_layer_all_fields() {
     assert_eq!(info.scale_y, 0.8);
     assert_eq!(info.skew_x, 0.2);
     assert_eq!(info.skew_y, 0.3);
+    assert_eq!(info.rotation, 90.0);
     assert_eq!(info.opacity, 0.6);
     assert_eq!(info.frame_range, (0, 1));
     assert!(!info.visible);
@@ -451,6 +455,7 @@ fn update_layer_not_found() {
         scale_y: None,
         skew_x: None,
         skew_y: None,
+        rotation: None,
         opacity: None,
         frame_range: None,
         visible: None,

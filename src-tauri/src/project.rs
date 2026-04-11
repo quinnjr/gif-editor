@@ -41,6 +41,7 @@ pub struct LayerInfo {
     pub scale_y: f64,
     pub skew_x: f64,
     pub skew_y: f64,
+    pub rotation: f64,
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
@@ -69,6 +70,7 @@ impl From<&Layer> for LayerInfo {
                 scale_y: l.scale_y,
                 skew_x: l.skew_x,
                 skew_y: l.skew_y,
+                rotation: l.rotation,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -91,6 +93,7 @@ impl From<&Layer> for LayerInfo {
                 scale_y: l.scale_y,
                 skew_x: l.skew_x,
                 skew_y: l.skew_y,
+                rotation: l.rotation,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -118,6 +121,7 @@ pub struct LayerUpdate {
     pub scale_y: Option<f64>,
     pub skew_x: Option<f64>,
     pub skew_y: Option<f64>,
+    pub rotation: Option<f64>,
     pub opacity: Option<f64>,
     pub frame_range: Option<(usize, usize)>,
     pub visible: Option<bool>,
@@ -674,6 +678,9 @@ impl Project {
                 if let Some(v) = changes.skew_y {
                     l.skew_y = v;
                 }
+                if let Some(v) = changes.rotation {
+                    l.rotation = v;
+                }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;
                 }
@@ -706,6 +713,9 @@ impl Project {
                 }
                 if let Some(v) = changes.skew_y {
                     l.skew_y = v;
+                }
+                if let Some(v) = changes.rotation {
+                    l.rotation = v;
                 }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;

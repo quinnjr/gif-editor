@@ -25,6 +25,7 @@ export interface LayerInfo {
   scale_y: number;
   skew_x: number;
   skew_y: number;
+  rotation: number;
   opacity: number;
   frame_range: [number, number];
   visible: boolean;
@@ -46,6 +47,7 @@ export interface LayerUpdate {
   scale_y?: number;
   skew_x?: number;
   skew_y?: number;
+  rotation?: number;
   opacity?: number;
   frame_range?: [number, number];
   visible?: boolean;
