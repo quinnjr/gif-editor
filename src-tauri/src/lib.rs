@@ -48,6 +48,8 @@ pub fn run() {
             commands::delete_frames,
             commands::restore_frames,
             commands::get_excluded_frames,
+            commands::undo,
+            commands::redo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

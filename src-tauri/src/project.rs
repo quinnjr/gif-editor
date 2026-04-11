@@ -110,7 +110,7 @@ impl From<&Layer> for LayerInfo {
 
 /// Partial update payload received from the frontend.  Every field is
 /// optional; only `Some` fields are applied.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 pub struct LayerUpdate {
     pub name: Option<String>,
     pub position: Option<(f64, f64)>,

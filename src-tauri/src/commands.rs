@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::export::{self, ExportSettings};
 use crate::layer::Stroke;
-use crate::project::{push_history, AppState, GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
+use crate::project::{push_history, GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
 
 /// Open a media file (GIF, MP4, or WebM) and initialise project state.
 /// Returns metadata so the frontend can set up its frame timeline immediately.
@@ -65,6 +65,7 @@ pub async fn add_image_layer(
     state: State<'_, ProjectState>,
 ) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.add_image_layer(&path)
 }
@@ -80,6 +81,7 @@ pub async fn add_text_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     Ok(project.add_text_layer(text, font_family, font_size, color, stroke))
 }
@@ -92,6 +94,7 @@ pub async fn update_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.update_layer(id, changes)
 }
@@ -100,6 +103,7 @@ pub async fn update_layer(
 #[tauri::command]
 pub async fn remove_layer(id: Uuid, state: State<'_, ProjectState>) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.remove_layer(id)
 }
@@ -111,6 +115,7 @@ pub async fn reorder_layers(
     state: State<'_, ProjectState>,
 ) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.reorder_layers(ids)
 }
@@ -143,6 +148,7 @@ pub async fn delete_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.delete_frames(&indices)
 }
@@ -155,6 +161,7 @@ pub async fn restore_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.restore_frames(&source_indices)
 }
@@ -229,4 +236,45 @@ pub async fn export_project(
 #[tauri::command]
 pub fn check_ffmpeg() -> bool {
     export::ffmpeg_available()
+}
+
+/// Undo the last mutating action. Returns the updated layer list.
+/// Returns an empty Vec (not an error) when history is empty.
+#[tauri::command]
+pub async fn undo(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    if guard.history.is_empty() || guard.project.is_none() {
+        return Ok(guard.project.as_ref().map(|p| p.get_layers()).unwrap_or_default());
+    }
+    let current_layers = guard.project.as_ref().unwrap().layers.clone();
+    let current_excluded = guard.project.as_ref().unwrap().excluded_frames.clone();
+    let entry = guard.history.pop().unwrap();
+    guard.redo_stack.push(crate::project::HistoryEntry {
+        layers: current_layers,
+        excluded_frames: current_excluded,
+    });
+    let project = guard.project.as_mut().unwrap();
+    project.layers = entry.layers;
+    project.excluded_frames = entry.excluded_frames;
+    Ok(project.get_layers())
+}
+
+/// Redo the last undone action. Returns the updated layer list.
+#[tauri::command]
+pub async fn redo(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    if guard.redo_stack.is_empty() || guard.project.is_none() {
+        return Ok(guard.project.as_ref().map(|p| p.get_layers()).unwrap_or_default());
+    }
+    let current_layers = guard.project.as_ref().unwrap().layers.clone();
+    let current_excluded = guard.project.as_ref().unwrap().excluded_frames.clone();
+    let entry = guard.redo_stack.pop().unwrap();
+    guard.history.push(crate::project::HistoryEntry {
+        layers: current_layers,
+        excluded_frames: current_excluded,
+    });
+    let project = guard.project.as_mut().unwrap();
+    project.layers = entry.layers;
+    project.excluded_frames = entry.excluded_frames;
+    Ok(project.get_layers())
 }
