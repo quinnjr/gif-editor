@@ -818,6 +818,27 @@ impl Project {
         Ok(LayerInfo::from(&*layer))
     }
 
+    /// Clone the layer identified by `id` with a fresh UUID and insert it
+    /// immediately after the source in the layer stack.
+    pub fn duplicate_layer(&mut self, id: Uuid) -> Result<LayerInfo, AppError> {
+        let pos = self
+            .layers
+            .iter()
+            .position(|l| l.id() == id)
+            .ok_or(AppError::LayerNotFound(id))?;
+
+        let mut new_layer = self.layers[pos].clone();
+        // Assign a fresh UUID to the duplicate.
+        match &mut new_layer {
+            Layer::Image(l) => l.id = uuid::Uuid::new_v4(),
+            Layer::Text(l) => l.id = uuid::Uuid::new_v4(),
+        }
+
+        let info = LayerInfo::from(&new_layer);
+        self.layers.insert(pos + 1, new_layer);
+        Ok(info)
+    }
+
     /// Composite all layers onto the GIF frame at `logical_index`, save the
     /// result as a PNG in the temp directory, and return its path.
     pub fn render_composite(&mut self, logical_index: usize) -> Result<String, AppError> {

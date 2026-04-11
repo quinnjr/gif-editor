@@ -51,6 +51,7 @@ pub fn run() {
             commands::undo,
             commands::redo,
             commands::flip_layer,
+            commands::duplicate_layer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

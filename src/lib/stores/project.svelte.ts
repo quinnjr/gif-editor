@@ -92,6 +92,15 @@ class ProjectStore {
     const updated = await cmd.flipLayer(id, axis);
     this.layers = this.layers.map((l) => (l.id === id ? updated : l));
   }
+
+  async duplicateLayer(id: string) {
+    const newLayer = await cmd.duplicateLayer(id);
+    const idx = this.layers.findIndex((l) => l.id === id);
+    const updated = [...this.layers];
+    updated.splice(idx + 1, 0, newLayer);
+    this.layers = updated;
+    return newLayer;
+  }
 }
 
 export const project = new ProjectStore();

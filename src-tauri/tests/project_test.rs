@@ -677,3 +677,27 @@ fn flip_layer_vertical_inverts_scale_y() {
     project.flip_layer(layer.id, "vertical").unwrap();
     assert!((project.layers[0].scale_y_val() + 1.0).abs() < 1e-9);
 }
+
+// ---------------------------------------------------------------------------
+// duplicate_layer
+// ---------------------------------------------------------------------------
+
+#[test]
+fn duplicate_layer_creates_new_uuid() {
+    let mut project = open_test_gif();
+    let layer = project.add_text_layer("original".to_string(), None, None, None, None);
+    let dup = project.duplicate_layer(layer.id).unwrap();
+    assert_ne!(dup.id, layer.id);
+    assert_eq!(project.layers.len(), 2);
+}
+
+#[test]
+fn duplicate_layer_inserts_above_source() {
+    let mut project = open_test_gif();
+    let layer = project.add_text_layer("original".to_string(), None, None, None, None);
+    project.duplicate_layer(layer.id).unwrap();
+    // After duplication, the duplicate is at index 1 (above source at index 0)
+    assert_eq!(project.layers.len(), 2);
+    // Duplicate is inserted after source (on top in rendering stack)
+    assert_eq!(project.layers[0].id(), layer.id);
+}

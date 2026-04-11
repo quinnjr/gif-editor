@@ -76,6 +76,8 @@
     </button>
     <span class="flex-1 truncate text-sm">{layer.name}</span>
     <span class="text-xs text-zinc-400">{layer.layer_type}</span>
+    <button onclick={(e) => { e.stopPropagation(); project.duplicateLayer(layer.id); }}
+      class="text-xs text-zinc-400 hover:text-blue-400" title="Duplicate layer">⧉</button>
     <button onclick={(e) => { e.stopPropagation(); handleRemove(); }}
       class="text-xs text-zinc-400 hover:text-red-400" title="Remove layer">✕</button>
   </div>

@@ -291,3 +291,15 @@ pub async fn flip_layer(
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.flip_layer(id, &axis)
 }
+
+/// Clone the layer identified by `id` and insert the copy above it in the stack.
+#[tauri::command]
+pub async fn duplicate_layer(
+    id: Uuid,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.duplicate_layer(id)
+}

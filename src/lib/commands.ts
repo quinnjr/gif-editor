@@ -82,3 +82,7 @@ export async function redo(): Promise<LayerInfo[]> {
 export async function flipLayer(id: string, axis: 'horizontal' | 'vertical'): Promise<LayerInfo> {
   return invoke('flip_layer', { id, axis });
 }
+
+export async function duplicateLayer(id: string): Promise<LayerInfo> {
+  return invoke('duplicate_layer', { id });
+}
