@@ -278,3 +278,16 @@ pub async fn redo(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppE
     project.excluded_frames = entry.excluded_frames;
     Ok(project.get_layers())
 }
+
+/// Flip a layer along `axis` ("horizontal" or "vertical") by negating scale.
+#[tauri::command]
+pub async fn flip_layer(
+    id: Uuid,
+    axis: String,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.flip_layer(id, &axis)
+}

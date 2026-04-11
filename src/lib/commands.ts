@@ -78,3 +78,7 @@ export async function undo(): Promise<LayerInfo[]> {
 export async function redo(): Promise<LayerInfo[]> {
   return invoke('redo');
 }
+
+export async function flipLayer(id: string, axis: 'horizontal' | 'vertical'): Promise<LayerInfo> {
+  return invoke('flip_layer', { id, axis });
+}

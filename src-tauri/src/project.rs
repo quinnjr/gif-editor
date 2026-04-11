@@ -780,6 +780,30 @@ impl Project {
         Ok(())
     }
 
+    /// Flip a layer horizontally or vertically by negating the appropriate scale axis.
+    pub fn flip_layer(&mut self, id: Uuid, axis: &str) -> Result<LayerInfo, AppError> {
+        let layer = self
+            .layers
+            .iter_mut()
+            .find(|l| l.id() == id)
+            .ok_or(AppError::LayerNotFound(id))?;
+
+        match layer {
+            Layer::Image(l) => match axis {
+                "horizontal" => l.scale_x *= -1.0,
+                "vertical" => l.scale_y *= -1.0,
+                _ => {}
+            },
+            Layer::Text(l) => match axis {
+                "horizontal" => l.scale_x *= -1.0,
+                "vertical" => l.scale_y *= -1.0,
+                _ => {}
+            },
+        }
+
+        Ok(LayerInfo::from(&*layer))
+    }
+
     /// Composite all layers onto the GIF frame at `logical_index`, save the
     /// result as a PNG in the temp directory, and return its path.
     pub fn render_composite(&mut self, logical_index: usize) -> Result<String, AppError> {

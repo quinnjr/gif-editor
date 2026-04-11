@@ -87,6 +87,11 @@ class ProjectStore {
   async redo() {
     this.layers = await cmd.redo();
   }
+
+  async flipLayer(id: string, axis: 'horizontal' | 'vertical') {
+    const updated = await cmd.flipLayer(id, axis);
+    this.layers = this.layers.map((l) => (l.id === id ? updated : l));
+  }
 }
 
 export const project = new ProjectStore();

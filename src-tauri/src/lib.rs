@@ -50,6 +50,7 @@ pub fn run() {
             commands::get_excluded_frames,
             commands::undo,
             commands::redo,
+            commands::flip_layer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

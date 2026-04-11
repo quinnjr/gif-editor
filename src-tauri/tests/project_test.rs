@@ -650,3 +650,24 @@ fn open_unsupported_format_returns_error() {
     assert!(result.is_err());
     std::fs::remove_file(&path).ok();
 }
+
+// ---------------------------------------------------------------------------
+// flip_layer
+// ---------------------------------------------------------------------------
+
+#[test]
+fn flip_layer_horizontal_inverts_scale_x() {
+    let mut project = open_test_gif();
+    let layer = project.add_text_layer("test".to_string(), None, None, None, None);
+    assert!((project.layers[0].scale_x_val() - 1.0).abs() < 1e-9);
+    project.flip_layer(layer.id, "horizontal").unwrap();
+    assert!((project.layers[0].scale_x_val() + 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn flip_layer_vertical_inverts_scale_y() {
+    let mut project = open_test_gif();
+    let layer = project.add_text_layer("test".to_string(), None, None, None, None);
+    project.flip_layer(layer.id, "vertical").unwrap();
+    assert!((project.layers[0].scale_y_val() + 1.0).abs() < 1e-9);
+}

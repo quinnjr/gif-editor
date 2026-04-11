@@ -184,4 +184,18 @@ impl Layer {
             Layer::Text(l) => &l.keyframes,
         }
     }
+
+    pub fn scale_x_val(&self) -> f64 {
+        match self {
+            Layer::Image(l) => l.scale_x,
+            Layer::Text(l) => l.scale_x,
+        }
+    }
+
+    pub fn scale_y_val(&self) -> f64 {
+        match self {
+            Layer::Image(l) => l.scale_y,
+            Layer::Text(l) => l.scale_y,
+        }
+    }
 }
