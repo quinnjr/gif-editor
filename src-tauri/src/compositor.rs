@@ -9,6 +9,7 @@ struct AffineParams {
     scale_y: f64,
     skew_x: f64,
     skew_y: f64,
+    rotation: f64, // degrees
     opacity: f64,
 }
 
@@ -57,9 +58,10 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     scale_y: sy,
                     skew_x: kx,
                     skew_y: ky,
+                    rotation: img_layer.rotation,
                     opacity,
                 };
-                if is_identity(sx, sy, kx, ky) {
+                if is_identity(sx, sy, kx, ky, img_layer.rotation) {
                     composite_rgba_buffer(&mut target, src, pos, opacity);
                 } else {
                     affine_composite(&mut target, src, &params);
@@ -84,9 +86,10 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                         scale_y: sy,
                         skew_x: kx,
                         skew_y: ky,
+                        rotation: text_layer.rotation,
                         opacity,
                     };
-                    if is_identity(sx, sy, kx, ky) {
+                    if is_identity(sx, sy, kx, ky, text_layer.rotation) {
                         composite_rgba_buffer(&mut target, &text_img, pos, opacity);
                     } else {
                         affine_composite(&mut target, &text_img, &params);
@@ -100,22 +103,25 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
 }
 
 /// Returns `true` when the 2×2 transform portion is the identity matrix.
-fn is_identity(sx: f64, sy: f64, kx: f64, ky: f64) -> bool {
+fn is_identity(sx: f64, sy: f64, kx: f64, ky: f64, rotation: f64) -> bool {
     (sx - 1.0).abs() < f64::EPSILON
         && (sy - 1.0).abs() < f64::EPSILON
         && kx.abs() < f64::EPSILON
         && ky.abs() < f64::EPSILON
+        && rotation.abs() < f64::EPSILON
 }
 
 /// Composite `src` onto `target` using the affine transform defined by
-/// `(scale_x, scale_y, skew_x, skew_y)` with translation `position`.
+/// combined rotation × scale/skew matrix with translation `position`.
 ///
 /// The matrix maps source → destination:
 ///
 /// ```text
-///   dst_x = scale_x * src_x + skew_x * src_y + tx
-///   dst_y = skew_y  * src_x + scale_y * src_y + ty
+///   dst_x = a * src_x + c * src_y + tx
+///   dst_y = b * src_x + d * src_y + ty
 /// ```
+///
+/// where (a,b,c,d) = rotation × scale/skew matrix.
 ///
 /// We iterate over the output bounding box and use the inverse matrix to
 /// sample source pixels with bilinear interpolation.
@@ -124,18 +130,29 @@ fn affine_composite(target: &mut RgbaImage, src: &RgbaImage, params: &AffinePara
     let (sw, sh) = (src.width() as f64, src.height() as f64);
     let (tx, ty) = params.position;
     let (sx, sy, kx, ky) = (params.scale_x, params.scale_y, params.skew_x, params.skew_y);
+    let theta = params.rotation.to_radians();
+    let (cos_t, sin_t) = (theta.cos(), theta.sin());
     let opacity = params.opacity;
 
-    let corners = [(0.0, 0.0), (sw, 0.0), (0.0, sh), (sw, sh)];
+    // Combined rotation × scale/skew matrix:
+    //   a = cos*sx - sin*ky,  c = cos*kx - sin*sy
+    //   b = sin*sx + cos*ky,  d = sin*kx + cos*sy
+    // dst_x = a*src_x + c*src_y + tx
+    // dst_y = b*src_x + d*src_y + ty
+    let a = cos_t * sx - sin_t * ky;
+    let b = sin_t * sx + cos_t * ky;
+    let c = cos_t * kx - sin_t * sy;
+    let d = sin_t * kx + cos_t * sy;
 
+    // Compute output bounding box by mapping all four source corners.
+    let corners = [(0.0, 0.0), (sw, 0.0), (0.0, sh), (sw, sh)];
     let mut min_x = f64::MAX;
     let mut min_y = f64::MAX;
     let mut max_x = f64::MIN;
     let mut max_y = f64::MIN;
-
     for (cx, cy) in &corners {
-        let dx = sx * cx + kx * cy + tx;
-        let dy = ky * cx + sy * cy + ty;
+        let dx = a * cx + c * cy + tx;
+        let dy = b * cx + d * cy + ty;
         min_x = min_x.min(dx);
         min_y = min_y.min(dy);
         max_x = max_x.max(dx);
@@ -147,14 +164,14 @@ fn affine_composite(target: &mut RgbaImage, src: &RgbaImage, params: &AffinePara
     let x1 = (max_x.ceil() as i64).min(tw);
     let y1 = (max_y.ceil() as i64).min(th);
 
-    let det = sx * sy - kx * ky;
+    let det = a * d - c * b;
     if det.abs() < 1e-12 {
         return;
     }
-    let inv_a = sy / det;
-    let inv_b = -ky / det;
-    let inv_c = -kx / det;
-    let inv_d = sx / det;
+    let inv_a = d / det;
+    let inv_b = -b / det;
+    let inv_c = -c / det;
+    let inv_d = a / det;
 
     for dst_y in y0..y1 {
         for dst_x in x0..x1 {

@@ -267,3 +267,32 @@ fn composite_animated_gif_overlay_cycles_frames() {
     let r2 = composite_frame(&base, &layers, 2);
     assert_eq!(*r2.get_pixel(0, 0), Rgba([0, 255, 0, 255]));
 }
+
+#[test]
+fn rotation_90_covers_transposed_area() {
+    use gif_editor_lib::layer::{ImageLayer, Layer};
+    use gif_editor_lib::compositor::composite_frame;
+    use image::{Rgba, RgbaImage};
+
+    // 10×20 red source layer (tall rectangle)
+    let mut src = RgbaImage::new(10, 20);
+    for pixel in src.pixels_mut() {
+        *pixel = Rgba([255, 0, 0, 255]);
+    }
+    let base = RgbaImage::from_pixel(100, 100, Rgba([0, 0, 0, 255]));
+
+    let mut layer = ImageLayer::new("test".to_string(), 10, 20);
+    layer.image_data = Some(src);
+    layer.frame_range = (0, 0);
+    layer.rotation = 90.0;
+    layer.position = (10.0, 10.0);
+    let layers = vec![Layer::Image(layer)];
+
+    let result = composite_frame(&base, &layers, 0);
+    // After 90° rotation around origin, the 10×20 rect maps to x=[-20,0], y=[0,10]
+    // With position offset (10,10), it becomes x=[-10,10], y=[10,20]
+    // Check that pixel at (5, 15) is red (inside rotated footprint)
+    let p = result.get_pixel(5, 15);
+    assert_eq!(p[0], 255, "Rotated layer pixel should be red");
+    assert_eq!(p[3], 255, "Alpha should be full");
+}
