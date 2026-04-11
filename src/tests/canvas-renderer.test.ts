@@ -5,7 +5,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => path),
 }));
 
-import { renderFrame, interpolateKeyframes } from '$lib/utils/canvas-renderer';
+import { renderFrame, interpolateKeyframes, wrapText } from '$lib/utils/canvas-renderer';
 import type { LayerInfo, Keyframe } from '$lib/types';
 
 // Mock Image class that auto-triggers onload
@@ -53,9 +53,11 @@ function createMockCtx() {
     transform: track('transform'),
     fillText: track('fillText'),
     strokeText: track('strokeText'),
+    measureText: vi.fn((text: string) => ({ width: 100 } as TextMetrics)),
     globalAlpha: 1,
     font: '',
     textBaseline: '',
+    textAlign: '',
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
@@ -457,6 +459,17 @@ describe('renderFrame', () => {
       expect(call[0]).toBeCloseTo(0, 4);
       // b = sin*sx + cos*ky = 1*1 + 0*0 = 1
       expect(call[1]).toBeCloseTo(1, 4);
+    });
+  });
+
+  describe('text wrapping', () => {
+    it('wrapText returns multiple lines when text exceeds max_width', () => {
+      const ctx = createMockCtx();
+      vi.mocked(ctx.measureText).mockImplementation((text: string) => ({
+        width: text.length * 10,
+      } as TextMetrics));
+      const lines = wrapText(ctx as unknown as CanvasRenderingContext2D, 'word1 word2 word3', 60);
+      expect(lines.length).toBeGreaterThan(1);
     });
   });
 });

@@ -13,6 +13,28 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+export function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth || !current) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
+}
+
 export function interpolateKeyframes(
   keyframes: Keyframe[],
   frameIndex: number,
@@ -95,17 +117,33 @@ export async function renderFrame(
       ctx.drawImage(img, 0, 0);
     } else if (layer.layer_type === 'text') {
       const fontSize = layer.font_size ?? 48;
-      ctx.font = `${fontSize}px "${layer.font_family ?? 'Impact'}", sans-serif`;
+      const align = (layer.text_align ?? 'center') as CanvasTextAlign;
+      ctx.font = `${fontSize}px "${layer.font_family ?? 'Anton'}", sans-serif`;
       ctx.textBaseline = 'top';
-      if (layer.stroke) {
-        ctx.strokeStyle = `rgba(${layer.stroke.color.join(',')})`;
-        ctx.lineWidth = layer.stroke.width * 2;
-        ctx.lineJoin = 'round';
-        ctx.strokeText(layer.text ?? '', 0, 0);
-      }
-      const [r, g, b, a] = layer.color ?? [255, 255, 255, 255];
-      ctx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
-      ctx.fillText(layer.text ?? '', 0, 0);
+      ctx.textAlign = 'left'; // we compute x manually
+
+      const text = layer.text ?? '';
+      const lineHeight = fontSize * 1.2;
+      const lines = layer.max_width ? wrapText(ctx, text, layer.max_width) : [text];
+      const maxW = layer.max_width ?? ctx.measureText(text).width;
+
+      lines.forEach((line, i) => {
+        const lineW = ctx.measureText(line).width;
+        let x = 0;
+        if (align === 'center') x = (maxW - lineW) / 2;
+        else if (align === 'right') x = maxW - lineW;
+        const y = i * lineHeight;
+
+        if (layer.stroke) {
+          ctx.strokeStyle = `rgba(${layer.stroke.color.join(',')})`;
+          ctx.lineWidth = layer.stroke.width * 2;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(line, x, y);
+        }
+        const [r, g, b, a] = layer.color ?? [255, 255, 255, 255];
+        ctx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
+        ctx.fillText(line, x, y);
+      });
     }
 
     ctx.restore();
