@@ -140,8 +140,56 @@ pub struct Project {
     pub excluded_frames: BTreeSet<usize>,
 }
 
-/// Global app state: at most one project open at a time.
-pub type ProjectState = Mutex<Option<Project>>;
+/// A snapshot of mutable project state for undo/redo.
+#[derive(Clone)]
+pub struct HistoryEntry {
+    pub layers: Vec<Layer>,
+    pub excluded_frames: BTreeSet<usize>,
+}
+
+/// Container holding the optional open project plus undo/redo history stacks.
+pub struct AppState {
+    pub project: Option<Project>,
+    pub history: Vec<HistoryEntry>,
+    pub redo_stack: Vec<HistoryEntry>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            project: None,
+            history: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Push a snapshot of the current project state onto the history stack.
+/// Clears the redo stack. No-op if no project is open.
+/// Cap: 50 entries (oldest dropped when full).
+pub fn push_history(app_state: &mut AppState) {
+    let Some(project) = &app_state.project else {
+        return;
+    };
+    let entry = HistoryEntry {
+        layers: project.layers.clone(),
+        excluded_frames: project.excluded_frames.clone(),
+    };
+    if app_state.history.len() >= 50 {
+        app_state.history.remove(0);
+    }
+    app_state.history.push(entry);
+    app_state.redo_stack.clear();
+}
+
+/// Global app state: at most one project open at a time, with undo/redo history.
+pub type ProjectState = Mutex<AppState>;
 
 impl Project {
     // -----------------------------------------------------------------------

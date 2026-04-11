@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::export::{self, ExportSettings};
 use crate::layer::Stroke;
-use crate::project::{GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
+use crate::project::{push_history, AppState, GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
 
 /// Open a media file (GIF, MP4, or WebM) and initialise project state.
 /// Returns metadata so the frontend can set up its frame timeline immediately.
@@ -23,7 +23,10 @@ pub async fn open_file(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let (project, metadata) = Project::open(Path::new(&path))?;
-    *state.lock().unwrap() = Some(project);
+    let mut guard = state.lock().unwrap();
+    guard.project = Some(project);
+    guard.history.clear();
+    guard.redo_stack.clear();
     Ok(metadata)
 }
 
@@ -46,7 +49,7 @@ pub async fn get_frame(
     state: State<'_, ProjectState>,
 ) -> Result<String, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.get_frame_png_path(frame_index)
 }
 
@@ -62,7 +65,7 @@ pub async fn add_image_layer(
     state: State<'_, ProjectState>,
 ) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.add_image_layer(&path)
 }
 
@@ -77,7 +80,7 @@ pub async fn add_text_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     Ok(project.add_text_layer(text, font_family, font_size, color, stroke))
 }
 
@@ -89,7 +92,7 @@ pub async fn update_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.update_layer(id, changes)
 }
 
@@ -97,7 +100,7 @@ pub async fn update_layer(
 #[tauri::command]
 pub async fn remove_layer(id: Uuid, state: State<'_, ProjectState>) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.remove_layer(id)
 }
 
@@ -108,7 +111,7 @@ pub async fn reorder_layers(
     state: State<'_, ProjectState>,
 ) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.reorder_layers(ids)
 }
 
@@ -120,7 +123,7 @@ pub async fn render_composite(
     state: State<'_, ProjectState>,
 ) -> Result<String, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.render_composite(frame_index)
 }
 
@@ -128,7 +131,7 @@ pub async fn render_composite(
 #[tauri::command]
 pub async fn get_layers(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
     let guard = state.lock().unwrap();
-    let project = guard.as_ref().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_ref().ok_or(AppError::NoProject)?;
     Ok(project.get_layers())
 }
 
@@ -140,7 +143,7 @@ pub async fn delete_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.delete_frames(&indices)
 }
 
@@ -152,7 +155,7 @@ pub async fn restore_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.restore_frames(&source_indices)
 }
 
@@ -161,7 +164,7 @@ pub async fn restore_frames(
 #[tauri::command]
 pub async fn get_excluded_frames(state: State<'_, ProjectState>) -> Result<Vec<usize>, AppError> {
     let guard = state.lock().unwrap();
-    let project = guard.as_ref().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_ref().ok_or(AppError::NoProject)?;
     Ok(project.get_excluded_frames())
 }
 
@@ -184,7 +187,7 @@ pub async fn export_project(
     output_path: String,
 ) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
 
     let out = std::path::Path::new(&output_path);
     let layers = project.layers.clone();

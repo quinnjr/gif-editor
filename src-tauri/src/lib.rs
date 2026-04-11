@@ -20,7 +20,7 @@ mod commands;
 
 use std::sync::Mutex;
 
-use crate::project::{Project, ProjectState};
+use crate::project::{AppState, ProjectState};
 
 // ---------------------------------------------------------------------------
 // App entry point
@@ -30,7 +30,7 @@ use crate::project::{Project, ProjectState};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(Mutex::new(None::<Project>) as ProjectState)
+        .manage(Mutex::new(AppState::default()) as ProjectState)
         .invoke_handler(tauri::generate_handler![
             commands::open_file,
             commands::open_gif,
