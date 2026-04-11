@@ -75,3 +75,27 @@ fn render_text_different_font_sizes() {
     assert!(large_img.width() > small_img.width());
     assert!(large_img.height() > small_img.height());
 }
+
+#[test]
+fn word_wrap_splits_long_text() {
+    let mut layer = TextLayer::new("word1 word2 word3 word4".to_string());
+    layer.font_size = 24.0;
+    layer.max_width = Some(60.0); // force wrap after ~2 words
+    let result = render_text(&layer).unwrap();
+    // A wrapped image should be taller than a single-line image of the same text.
+    let mut single_line = TextLayer::new("word1 word2 word3 word4".to_string());
+    single_line.font_size = 24.0;
+    let single = render_text(&single_line).unwrap();
+    assert!(result.height() > single.height(), "Wrapped text should be taller");
+}
+
+#[test]
+fn center_aligned_wider_than_single_character() {
+    let mut layer = TextLayer::new("Hello World".to_string());
+    layer.font_size = 32.0;
+    layer.text_align = "center".to_string();
+    layer.max_width = Some(200.0);
+    let result = render_text(&layer).unwrap();
+    assert!(result.width() > 0);
+    assert!(result.height() > 0);
+}

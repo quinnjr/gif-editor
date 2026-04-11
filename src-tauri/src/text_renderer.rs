@@ -26,47 +26,64 @@ pub fn render_text(layer: &TextLayer) -> Result<RgbaImage, AppError> {
     let font = load_font(&layer.font_family)?;
     let scale = PxScale::from(layer.font_size as f32);
 
-    // --- measure the text extent ---
-    let (text_w, text_h, ascent) = measure_text(&font, &layer.text, scale);
-    if text_w == 0 || text_h == 0 {
-        return Ok(RgbaImage::new(1, 1));
-    }
-
-    // Extra padding around the glyph bounding box so strokes aren't clipped.
     let stroke_pad = layer
         .stroke
         .as_ref()
         .map(|s| s.width.ceil() as u32 + 2)
         .unwrap_or(0);
-    let pad = stroke_pad;
 
-    let img_w = text_w + pad * 2;
-    let img_h = text_h + pad * 2;
-    let mut img = RgbaImage::new(img_w, img_h);
-
-    let x0 = pad as f32;
-    let y0 = pad as f32 + ascent;
-
-    // --- stroke pass (drawn first so fill sits on top) ---
-    if let Some(ref stroke) = layer.stroke {
-        let offsets = generate_stroke_offsets(stroke.width as f32);
-        let stroke_color = Rgba(stroke.color);
-        for (dx, dy) in &offsets {
-            draw_text_at(
-                &mut img,
-                &font,
-                &layer.text,
-                scale,
-                x0 + dx,
-                y0 + dy,
-                stroke_color,
-            );
-        }
+    // Wrap text into lines.
+    let lines = wrap_text(&font, &layer.text, scale, layer.max_width);
+    if lines.is_empty() {
+        return Ok(RgbaImage::new(1, 1));
     }
 
-    // --- fill pass ---
-    let fill_color = Rgba(layer.color);
-    draw_text_at(&mut img, &font, &layer.text, scale, x0, y0, fill_color);
+    let scaled = font.as_scaled(scale);
+    let ascent = scaled.ascent();
+    let descent = scaled.descent();
+    let line_height = (ascent - descent).ceil() as u32;
+
+    // Measure each line.
+    let line_widths: Vec<u32> = lines
+        .iter()
+        .map(|l| measure_line_width(&font, l, scale))
+        .collect();
+
+    let canvas_w = if let Some(mw) = layer.max_width {
+        mw.ceil() as u32 + stroke_pad * 2
+    } else {
+        *line_widths.iter().max().unwrap_or(&1) + stroke_pad * 2
+    };
+    let canvas_h = line_height * lines.len() as u32 + stroke_pad * 2;
+
+    let mut img = RgbaImage::new(canvas_w.max(1), canvas_h.max(1));
+    let pad = stroke_pad as f32;
+
+    for (i, line) in lines.iter().enumerate() {
+        let lw = line_widths[i] as f32;
+        let content_w = if let Some(mw) = layer.max_width {
+            mw as f32
+        } else {
+            lw
+        };
+        let x0 = match layer.text_align.as_str() {
+            "center" => pad + (content_w - lw) / 2.0,
+            "right" => pad + content_w - lw,
+            _ => pad, // "left" default
+        };
+        let y0 = pad + i as f32 * line_height as f32 + ascent;
+
+        if let Some(ref stroke) = layer.stroke {
+            let offsets = generate_stroke_offsets(stroke.width as f32);
+            let stroke_color = Rgba(stroke.color);
+            for (dx, dy) in &offsets {
+                draw_text_at(&mut img, &font, line, scale, x0 + dx, y0 + dy, stroke_color);
+            }
+        }
+
+        let fill_color = Rgba(layer.color);
+        draw_text_at(&mut img, &font, line, scale, x0, y0, fill_color);
+    }
 
     Ok(img)
 }
@@ -99,6 +116,48 @@ fn measure_text(font: &FontArc, text: &str, scale: PxScale) -> (u32, u32, f32) {
     }
 
     (width.ceil() as u32, height, ascent)
+}
+
+/// Measure just the pixel width of a single line of text.
+fn measure_line_width(font: &FontArc, text: &str, scale: PxScale) -> u32 {
+    let (w, _, _) = measure_text(font, text, scale);
+    w
+}
+
+/// Split `text` into lines that each fit within `max_width` pixels.
+/// If `max_width` is None, returns a single line (the full text).
+fn wrap_text(font: &FontArc, text: &str, scale: PxScale, max_width: Option<f64>) -> Vec<String> {
+    let Some(max_w) = max_width else {
+        return vec![text.to_string()];
+    };
+    let max_w = max_w as f32;
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        let candidate = if current_line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current_line} {word}")
+        };
+        let (w, _, _) = measure_text(font, &candidate, scale);
+        if w as f32 <= max_w || current_line.is_empty() {
+            current_line = candidate;
+        } else {
+            // Current line is full; push it and start a new one.
+            if !current_line.is_empty() {
+                lines.push(current_line.clone());
+            }
+            current_line = word.to_string();
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// Rasterise `text` onto `img` with the top-left of the first glyph at
