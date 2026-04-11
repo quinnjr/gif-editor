@@ -70,3 +70,11 @@ export async function restoreFrames(sourceIndices: number[]): Promise<GifMetadat
 export async function getExcludedFrames(): Promise<number[]> {
   return invoke('get_excluded_frames');
 }
+
+export async function undo(): Promise<LayerInfo[]> {
+  return invoke('undo');
+}
+
+export async function redo(): Promise<LayerInfo[]> {
+  return invoke('redo');
+}

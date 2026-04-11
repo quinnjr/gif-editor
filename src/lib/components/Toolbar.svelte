@@ -43,6 +43,13 @@
       onerror(`Failed to add text: ${e}`);
     }
   }
+
+  async function handleUndo() {
+    try { await project.undo(); } catch (e) { onerror(`Undo failed: ${e}`); }
+  }
+  async function handleRedo() {
+    try { await project.redo(); } catch (e) { onerror(`Redo failed: ${e}`); }
+  }
 </script>
 
 <div class="flex items-center gap-2 border-b border-zinc-700 bg-zinc-800 px-4 py-2">
@@ -57,6 +64,16 @@
   <button onclick={handleAddText} disabled={!project.isOpen}
     class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40">
     Add Text
+  </button>
+  <button onclick={handleUndo} disabled={!project.isOpen}
+    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"
+    title="Undo (Ctrl+Z)">
+    ↩ Undo
+  </button>
+  <button onclick={handleRedo} disabled={!project.isOpen}
+    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"
+    title="Redo (Ctrl+Y)">
+    ↪ Redo
   </button>
   <div class="flex-1"></div>
   <label class="flex items-center gap-1.5 text-sm text-zinc-300">

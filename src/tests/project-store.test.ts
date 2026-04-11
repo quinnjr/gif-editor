@@ -16,6 +16,8 @@ vi.mock('$lib/commands', () => ({
   deleteFrames: vi.fn(),
   restoreFrames: vi.fn(),
   getExcludedFrames: vi.fn(),
+  undo: vi.fn(),
+  redo: vi.fn(),
 }));
 
 import { project } from '$lib/stores/project.svelte';
@@ -276,6 +278,23 @@ describe('ProjectStore', () => {
       await project.restoreAllFrames();
 
       expect(mockCmd.restoreFrames).toHaveBeenCalledWith([2, 5, 7]);
+    });
+  });
+
+  describe('undo/redo', () => {
+    it('undo calls command and refreshes layers', async () => {
+      const { undo } = await import('$lib/commands');
+      vi.mocked(undo).mockResolvedValue([]);
+      await project.undo();
+      expect(undo).toHaveBeenCalledOnce();
+      expect(project.layers).toEqual([]);
+    });
+
+    it('redo calls command and refreshes layers', async () => {
+      const { redo } = await import('$lib/commands');
+      vi.mocked(redo).mockResolvedValue([]);
+      await project.redo();
+      expect(redo).toHaveBeenCalledOnce();
     });
   });
 });

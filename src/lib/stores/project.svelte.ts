@@ -79,6 +79,14 @@ class ProjectStore {
     if (this.excludedFrames.length === 0) return;
     await this.restoreFrames([...this.excludedFrames]);
   }
+
+  async undo() {
+    this.layers = await cmd.undo();
+  }
+
+  async redo() {
+    this.layers = await cmd.redo();
+  }
 }
 
 export const project = new ProjectStore();
