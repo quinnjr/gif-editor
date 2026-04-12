@@ -184,6 +184,12 @@ impl FlareLayer {
     }
 }
 
+impl Default for FlareLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Layer {
@@ -229,6 +235,8 @@ impl Layer {
         match self {
             Layer::Image(l) => l.scale_x,
             Layer::Text(l) => l.scale_x,
+            // Flare layers are not affine-transformed; render_flare() reads
+            // FlareLayer::scale directly.
             Layer::Flare(_) => 1.0,
         }
     }
@@ -237,6 +245,8 @@ impl Layer {
         match self {
             Layer::Image(l) => l.scale_y,
             Layer::Text(l) => l.scale_y,
+            // Flare layers are not affine-transformed; render_flare() reads
+            // FlareLayer::scale directly.
             Layer::Flare(_) => 1.0,
         }
     }
@@ -255,5 +265,8 @@ mod tests {
         assert!(layer.visible);
         assert_eq!(layer.opacity, 1.0);
         assert!(layer.keyframes.is_empty());
+        assert_eq!(layer.position, (0.0, 0.0));
+        assert_eq!(layer.frame_range, (0, 0));
+        assert_eq!(layer.name, "Solar Flare");
     }
 }
