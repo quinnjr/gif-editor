@@ -40,6 +40,12 @@ class ProjectStore {
     return layer;
   }
 
+  async addFlareLayer(position?: [number, number]) {
+    const layer = await cmd.addFlareLayer(position);
+    this.layers = [...this.layers, layer];
+    return layer;
+  }
+
   async updateLayer(id: string, changes: Partial<LayerInfo>) {
     const updated = await cmd.updateLayer(id, changes);
     this.layers = this.layers.map((l) => (l.id === id ? updated : l));

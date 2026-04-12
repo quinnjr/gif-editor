@@ -9,6 +9,7 @@ vi.mock('$lib/commands', () => ({
   getFrame: vi.fn(),
   addImageLayer: vi.fn(),
   addTextLayer: vi.fn(),
+  addFlareLayer: vi.fn(),
   updateLayer: vi.fn(),
   removeLayer: vi.fn(),
   reorderLayers: vi.fn(),
@@ -278,6 +279,21 @@ describe('ProjectStore', () => {
       await project.restoreAllFrames();
 
       expect(mockCmd.restoreFrames).toHaveBeenCalledWith([2, 5, 7]);
+    });
+  });
+
+  describe('addFlareLayer', () => {
+    it('addFlareLayer pushes layer to store', async () => {
+      const flareLayer = {
+        id: 'f1', name: 'Solar Flare', layer_type: 'flare',
+        position: [200, 150], intensity: 1, scale: 1, pulse_speed: 0.15,
+        opacity: 1, visible: true, frame_range: [0, 9], keyframes: [],
+        scale_x: 1, scale_y: 1, skew_x: 0, skew_y: 0, rotation: 0,
+      };
+      mockCmd.addFlareLayer.mockResolvedValueOnce(flareLayer);
+      const result = await project.addFlareLayer();
+      expect(result).toEqual(flareLayer);
+      expect(project.layers).toContainEqual(flareLayer);
     });
   });
 
