@@ -96,8 +96,20 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     }
                 }
             }
-            Layer::Flare(_) => {
-                // TODO(Task 4): composite flare layer
+            Layer::Flare(flare_layer) => {
+                let (pos, opacity) =
+                    match interpolate_keyframes(&flare_layer.keyframes, frame_index) {
+                        Some((p, o)) => (p, o),
+                        None => (flare_layer.position, flare_layer.opacity),
+                    };
+                let flare_img = crate::flare_renderer::render_flare(
+                    flare_layer,
+                    pos,
+                    frame_index,
+                    target.width(),
+                    target.height(),
+                );
+                additive_composite(&mut target, &flare_img, opacity);
             }
         }
     }
@@ -256,6 +268,30 @@ pub fn composite_rgba_buffer(
         let dst_pixel = target.get_pixel_mut(tx as u32, ty as u32);
         let effective_alpha = (src_pixel[3] as f64 / 255.0) * opacity;
         *dst_pixel = alpha_blend(dst_pixel, src_pixel, effective_alpha);
+    }
+}
+
+/// Additively blend `src` onto `target` — each channel is clamped at 255.
+/// Used for light-emitting effects (lens flares) where the correct model
+/// is "add light" rather than "paint over".
+fn additive_composite(target: &mut RgbaImage, src: &RgbaImage, opacity: f64) {
+    let (tw, th) = target.dimensions();
+    for y in 0..th {
+        for x in 0..tw {
+            let src_pixel = src.get_pixel(x, y);
+            if src_pixel[3] == 0 {
+                continue;
+            }
+            let dst_pixel = target.get_pixel_mut(x, y);
+            let eff = (src_pixel[3] as f64 / 255.0) * opacity;
+            dst_pixel[0] =
+                ((dst_pixel[0] as f64 + src_pixel[0] as f64 * eff).min(255.0)) as u8;
+            dst_pixel[1] =
+                ((dst_pixel[1] as f64 + src_pixel[1] as f64 * eff).min(255.0)) as u8;
+            dst_pixel[2] =
+                ((dst_pixel[2] as f64 + src_pixel[2] as f64 * eff).min(255.0)) as u8;
+            // dst alpha is preserved — we are adding light, not covering pixels
+        }
     }
 }
 
