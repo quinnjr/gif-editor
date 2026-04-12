@@ -41,6 +41,7 @@ fn export_gif_produces_valid_file() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -70,6 +71,7 @@ fn export_gif_with_resize() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: Some((20, 20)),
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -113,6 +115,7 @@ fn export_gif_with_image_and_text_layers() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
 
     let frame_count = gif.frame_count();
@@ -145,6 +148,7 @@ fn export_gif_with_skipped_frames() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     // Only export frames 0 and 2, skipping frame 1
     let frame_indices = vec![0, 2];
@@ -174,6 +178,7 @@ fn export_gif_single_frame() {
         format: ExportFormat::Gif,
         quality: 50,
         resize: None,
+        frame_index: None,
     };
     let frame_indices = vec![1];
     let delays = vec![10u16];
@@ -213,6 +218,7 @@ fn export_video_mp4_if_ffmpeg_present() {
         format: ExportFormat::Mp4,
         quality: 70,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -247,6 +253,7 @@ fn export_video_gif_format_rejected() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_indices: Vec<usize> = (0..gif.frame_count()).collect();
     let delays: Vec<u16> = gif.delays().to_vec();
@@ -273,6 +280,7 @@ fn export_gif_progress_callback_counts() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -296,4 +304,121 @@ fn export_gif_progress_callback_counts() {
     let counts = progress.lock().unwrap();
     assert_eq!(counts.len(), frame_count);
     assert_eq!(*counts, vec![1, 2, 3]);
+}
+
+// ---------------------------------------------------------------------------
+// export_image tests
+// ---------------------------------------------------------------------------
+
+use gif_editor_lib::export::export_image;
+use image::ImageReader;
+
+#[test]
+fn export_image_png_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("png");
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+}
+
+#[test]
+fn export_image_jpeg_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("jpg");
+    let settings = ExportSettings {
+        format: ExportFormat::Jpeg,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+    // JPEG is RGB — no alpha channel
+    assert!(matches!(img.color(), image::ColorType::Rgb8 | image::ColorType::L8));
+}
+
+#[test]
+fn export_image_webp_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("webp");
+    let settings = ExportSettings {
+        format: ExportFormat::WebP,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0).unwrap();
+    assert!(output_path.exists());
+    assert!(std::fs::metadata(&output_path).unwrap().len() > 0);
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+}
+
+#[test]
+fn export_image_png_with_resize() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("png");
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: Some((20, 20)),
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 20);
+    assert_eq!(img.height(), 20);
+}
+
+#[test]
+fn export_image_jpeg_flattens_alpha() {
+    ensure_test_gif();
+    let mut src = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("jpg");
+    let settings = ExportSettings {
+        format: ExportFormat::Jpeg,
+        quality: 95,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut src, &[], &settings, &output_path, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    // JPEG is always RGB
+    assert!(matches!(img.color(), image::ColorType::Rgb8));
+}
+
+#[test]
+fn export_image_rejects_gif_format() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+        frame_index: None,
+    };
+    let result = export_image(&mut gif, &[], &settings, &output_path, 0);
+    assert!(result.is_err());
 }
