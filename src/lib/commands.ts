@@ -27,6 +27,10 @@ export async function addTextLayer(
   return invoke('add_text_layer', { text, fontFamily, fontSize, color, stroke });
 }
 
+export async function addFlareLayer(position?: [number, number]): Promise<LayerInfo> {
+  return invoke('add_flare_layer', { position: position ?? null });
+}
+
 export async function updateLayer(id: string, changes: LayerUpdate): Promise<LayerInfo> {
   return invoke('update_layer', { id, changes });
 }

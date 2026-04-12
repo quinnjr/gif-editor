@@ -38,6 +38,7 @@ pub fn run() {
             commands::get_frame,
             commands::add_image_layer,
             commands::add_text_layer,
+            commands::add_flare_layer,
             commands::update_layer,
             commands::remove_layer,
             commands::reorder_layers,

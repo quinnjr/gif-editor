@@ -86,6 +86,18 @@ pub async fn add_text_layer(
     Ok(project.add_text_layer(text, font_family, font_size, color, stroke))
 }
 
+/// Create a new solar flare layer at `position` (defaults to canvas centre).
+#[tauri::command]
+pub async fn add_flare_layer(
+    position: Option<(f64, f64)>,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    Ok(project.add_flare_layer(position))
+}
+
 /// Apply a partial update to the layer identified by `id`.
 #[tauri::command]
 pub async fn update_layer(

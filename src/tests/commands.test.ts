@@ -11,6 +11,7 @@ import {
   getFrame,
   addImageLayer,
   addTextLayer,
+  addFlareLayer,
   updateLayer,
   removeLayer,
   reorderLayers,
@@ -167,5 +168,20 @@ describe('commands', () => {
     const result = await getExcludedFrames();
     expect(mockedInvoke).toHaveBeenCalledWith('get_excluded_frames');
     expect(result).toEqual([2, 4]);
+  });
+
+  it('addFlareLayer calls invoke with null position when omitted', async () => {
+    const layer = { id: 'f1', layer_type: 'flare', intensity: 1, scale: 1, pulse_speed: 0.15 };
+    mockedInvoke.mockResolvedValue(layer);
+    const result = await addFlareLayer();
+    expect(mockedInvoke).toHaveBeenCalledWith('add_flare_layer', { position: null });
+    expect(result).toEqual(layer);
+  });
+
+  it('addFlareLayer passes position when provided', async () => {
+    const layer = { id: 'f2', layer_type: 'flare' };
+    mockedInvoke.mockResolvedValue(layer);
+    await addFlareLayer([100, 200]);
+    expect(mockedInvoke).toHaveBeenCalledWith('add_flare_layer', { position: [100, 200] });
   });
 });
