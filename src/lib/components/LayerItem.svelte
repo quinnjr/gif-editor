@@ -123,6 +123,41 @@
         <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: ((layer.rotation - 90) + 360) % 360 }); }}
           class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">-90</button>
       </label>
+      {#if layer.layer_type === 'flare'}
+        <label class="flex items-center gap-2 text-xs text-zinc-300">
+          Intensity
+          <input type="range" min="0" max="2" step="0.05"
+            value={layer.intensity ?? 1}
+            oninput={async (e) => {
+              await project.updateLayer(layer.id, { intensity: parseFloat((e.target as HTMLInputElement).value) });
+            }}
+            onclick={(e) => e.stopPropagation()}
+            class="flex-1 accent-orange-500" />
+          <span class="w-10 text-right">{(layer.intensity ?? 1).toFixed(2)}</span>
+        </label>
+        <label class="flex items-center gap-2 text-xs text-zinc-300">
+          Scale
+          <input type="range" min="0.25" max="4" step="0.05"
+            value={layer.scale ?? 1}
+            oninput={async (e) => {
+              await project.updateLayer(layer.id, { scale: parseFloat((e.target as HTMLInputElement).value) });
+            }}
+            onclick={(e) => e.stopPropagation()}
+            class="flex-1 accent-orange-500" />
+          <span class="w-10 text-right">{(layer.scale ?? 1).toFixed(2)}</span>
+        </label>
+        <label class="flex items-center gap-2 text-xs text-zinc-300">
+          Pulse
+          <input type="range" min="0.05" max="0.5" step="0.01"
+            value={layer.pulse_speed ?? 0.15}
+            oninput={async (e) => {
+              await project.updateLayer(layer.id, { pulse_speed: parseFloat((e.target as HTMLInputElement).value) });
+            }}
+            onclick={(e) => e.stopPropagation()}
+            class="flex-1 accent-orange-500" />
+          <span class="w-10 text-right">{(layer.pulse_speed ?? 0.15).toFixed(2)}</span>
+        </label>
+      {/if}
       {#if layer.layer_type === 'text'}
         <div class="flex items-center gap-1 text-xs">
           <span class="text-zinc-400">Align</span>
