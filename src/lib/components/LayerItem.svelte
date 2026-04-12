@@ -99,30 +99,34 @@
       <div class="text-xs text-zinc-400">
         Position: ({Math.round(layer.position[0])}, {Math.round(layer.position[1])})
       </div>
-      <div class="flex gap-1">
-        <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'horizontal'); }}
-          class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
-          Flip H
-        </button>
-        <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'vertical'); }}
-          class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
-          Flip V
-        </button>
-      </div>
-      <label class="flex items-center gap-2 text-xs text-zinc-300">
-        Rotation
-        <input type="number" step="1" value={layer.rotation}
-          onchange={async (e) => {
-            const deg = parseFloat((e.target as HTMLInputElement).value);
-            await project.updateLayer(layer.id, { rotation: deg });
-          }}
-          class="w-16 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white" />
-        °
-        <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: (layer.rotation + 90) % 360 }); }}
-          class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">+90</button>
-        <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: ((layer.rotation - 90) + 360) % 360 }); }}
-          class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">-90</button>
-      </label>
+      {#if layer.layer_type !== 'flare'}
+        <div class="flex gap-1">
+          <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'horizontal'); }}
+            class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
+            Flip H
+          </button>
+          <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'vertical'); }}
+            class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
+            Flip V
+          </button>
+        </div>
+      {/if}
+      {#if layer.layer_type !== 'flare'}
+        <label class="flex items-center gap-2 text-xs text-zinc-300">
+          Rotation
+          <input type="number" step="1" value={layer.rotation}
+            onchange={async (e) => {
+              const deg = parseFloat((e.target as HTMLInputElement).value);
+              await project.updateLayer(layer.id, { rotation: deg });
+            }}
+            class="w-16 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white" />
+          °
+          <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: (layer.rotation + 90) % 360 }); }}
+            class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">+90</button>
+          <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: ((layer.rotation - 90) + 360) % 360 }); }}
+            class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">-90</button>
+        </label>
+      {/if}
       {#if layer.layer_type === 'flare'}
         <label class="flex items-center gap-2 text-xs text-zinc-300">
           Intensity

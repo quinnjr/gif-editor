@@ -164,8 +164,7 @@ pub fn render_flare(
     let (ox, oy) = position;
 
     // Pulsing brightness multiplier
-    let brightness =
-        layer.intensity * (1.0 + 0.3 * (frame_index as f64 * layer.pulse_speed).sin());
+    let brightness = (layer.intensity * (1.0 + 0.3 * (frame_index as f64 * layer.pulse_speed).sin())).min(2.0);
 
     // 1. Central white glow
     draw_glow(&mut img, ox, oy, layer.scale * 80.0, [255, 255, 255], brightness);
