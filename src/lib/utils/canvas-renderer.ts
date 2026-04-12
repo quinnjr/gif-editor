@@ -144,6 +144,103 @@ export async function renderFrame(
         ctx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
         ctx.fillText(line, x, y);
       });
+    } else if (layer.layer_type === 'flare') {
+      ctx.resetTransform();
+      ctx.globalCompositeOperation = 'lighter';
+
+      const [ox, oy] = interp ? interp.position : layer.position;
+      const intensity = layer.intensity ?? 1.0;
+      const scale = layer.scale ?? 1.0;
+      const pulseSpeed = layer.pulse_speed ?? 0.15;
+      const brightness = Math.min(
+        2.0,
+        intensity * (1.0 + 0.3 * Math.sin(frameIndex * pulseSpeed)),
+      );
+
+      // 1. Central white glow
+      const glowRadius = scale * 80;
+      const glowGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, glowRadius);
+      glowGrad.addColorStop(0, `rgba(255,255,255,${brightness.toFixed(3)})`);
+      glowGrad.addColorStop(0.3, `rgba(255,255,220,${(brightness * 0.7).toFixed(3)})`);
+      glowGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glowGrad as unknown as string;
+      ctx.beginPath();
+      ctx.arc(ox, oy, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. Starburst — 8 streaks radiating from origin
+      const streakLen = scale * 200;
+      for (let i = 0; i < 8; i++) {
+        const angle = (i * Math.PI) / 8;
+        const streakAlpha = Math.min(1, brightness * 0.6);
+        for (const dir of [1, -1] as const) {
+          const ex = ox + Math.cos(angle) * streakLen * dir;
+          const ey = oy + Math.sin(angle) * streakLen * dir;
+          const grad = ctx.createLinearGradient(ox, oy, ex, ey);
+          grad.addColorStop(0, `rgba(255,255,255,${streakAlpha.toFixed(3)})`);
+          grad.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.strokeStyle = grad as unknown as string;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+        }
+      }
+
+      // 3. Yellow ring + orange outer halo
+      const haloRadius = scale * 100;
+      const haloThick = scale * 25;
+      const haloGrad = ctx.createRadialGradient(
+        ox, oy, haloRadius - haloThick,
+        ox, oy, haloRadius + haloThick,
+      );
+      haloGrad.addColorStop(0, 'rgba(255,232,124,0)');
+      haloGrad.addColorStop(0.5, `rgba(255,123,0,${Math.min(1, brightness * 0.5).toFixed(3)})`);
+      haloGrad.addColorStop(1, 'rgba(255,232,124,0)');
+      ctx.fillStyle = haloGrad as unknown as string;
+      ctx.beginPath();
+      ctx.arc(ox, oy, haloRadius + haloThick, 0, Math.PI * 2);
+      ctx.fill();
+
+      const outerGrad = ctx.createRadialGradient(ox, oy, scale * 80, ox, oy, scale * 140);
+      outerGrad.addColorStop(0, 'rgba(255,123,0,0)');
+      outerGrad.addColorStop(0.6, `rgba(255,123,0,${Math.min(1, brightness * 0.2).toFixed(3)})`);
+      outerGrad.addColorStop(1, 'rgba(255,123,0,0)');
+      ctx.fillStyle = outerGrad as unknown as string;
+      ctx.beginPath();
+      ctx.arc(ox, oy, scale * 140, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Blue ghost artifacts along axis toward canvas centre
+      const { width, height } = ctx.canvas;
+      const axisX = width / 2 - ox;
+      const axisY = height / 2 - oy;
+
+      const ghostOffsets = [0.3, 0.6, 1.0, 1.4];
+      const ghostSizes   = [0.3, 0.2, 0.4, 0.15];
+      const ghostAlphas  = [0.6, 0.4, 0.7, 0.3];
+
+      for (let i = 0; i < 4; i++) {
+        const phase = i * 0.5;
+        const gb = Math.min(
+          1.0,
+          brightness * ghostAlphas[i] * (1 + 0.3 * Math.sin(frameIndex * pulseSpeed + phase)),
+        );
+        const gx = ox + axisX * ghostOffsets[i];
+        const gy = oy + axisY * ghostOffsets[i];
+        const gr = scale * 80 * ghostSizes[i];
+        if (gr < 0.5) continue;
+        const ghostGrad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+        ghostGrad.addColorStop(0, `rgba(75,110,175,${gb.toFixed(3)})`);
+        ghostGrad.addColorStop(1, 'rgba(75,110,175,0)');
+        ctx.fillStyle = ghostGrad as unknown as string;
+        ctx.beginPath();
+        ctx.arc(gx, gy, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     ctx.restore();

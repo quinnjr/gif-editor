@@ -128,6 +128,16 @@
     const [tx, ty] = interp ? interp.position : layer.position;
     const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
+    if (layer.layer_type === 'flare') {
+      const hs = 60;
+      return [
+        [tx - hs, ty - hs],
+        [tx + hs, ty - hs],
+        [tx - hs, ty + hs],
+        [tx + hs, ty + hs],
+      ];
+    }
+
     let w: number, h: number;
     if (layer.layer_type === 'image') {
       w = layer.source_width ?? 0;
@@ -147,6 +157,7 @@
   }
 
   function getHandlePositions(layer: LayerInfo): { type: HandleType; x: number; y: number }[] {
+    if (layer.layer_type === 'flare') return [];
     const [tl, tr, bl, br] = getTransformedCorners(layer);
     const mid = (a: [number, number], b: [number, number]): [number, number] =>
       [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -185,6 +196,14 @@
 
       const interp = interpolateKeyframes(layer.keyframes, frame);
       const [tx, ty] = interp ? interp.position : layer.position;
+
+      if (layer.layer_type === 'flare') {
+        const dx = x - tx;
+        const dy = y - ty;
+        if (dx * dx + dy * dy <= 60 * 60) return layer;
+        continue;
+      }
+
       const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
       // Inverse of [[sx, kx], [ky, sy]]

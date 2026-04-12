@@ -44,6 +44,8 @@ function createMockCtx() {
     };
   }
 
+  let _compositeOp = 'source-over';
+
   const ctx = {
     canvas: { width: 200, height: 200 },
     clearRect: track('clearRect'),
@@ -51,9 +53,18 @@ function createMockCtx() {
     save: track('save'),
     restore: track('restore'),
     transform: track('transform'),
+    resetTransform: track('resetTransform'),
     fillText: track('fillText'),
     strokeText: track('strokeText'),
+    beginPath: track('beginPath'),
+    arc: track('arc'),
+    fill: track('fill'),
+    moveTo: track('moveTo'),
+    lineTo: track('lineTo'),
+    stroke: track('stroke'),
     measureText: vi.fn((text: string) => ({ width: 100 } as TextMetrics)),
+    createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     globalAlpha: 1,
     font: '',
     textBaseline: '',
@@ -62,6 +73,8 @@ function createMockCtx() {
     strokeStyle: '',
     lineWidth: 0,
     lineJoin: '',
+    get globalCompositeOperation() { return _compositeOp; },
+    set globalCompositeOperation(v: string) { _compositeOp = v; calls.push({ method: 'setCompositeOp', args: [v] }); },
     _calls: calls,
   } as unknown as CanvasRenderingContext2D & { _calls: typeof calls };
 
@@ -471,5 +484,26 @@ describe('renderFrame', () => {
       const lines = wrapText(ctx as unknown as CanvasRenderingContext2D, 'word1 word2 word3', 60);
       expect(lines.length).toBeGreaterThan(1);
     });
+  });
+
+  it('renderFrame renders a flare layer with lighter compositing', async () => {
+    const flareLayer: LayerInfo = {
+      id: 'fl1', name: 'Solar Flare', layer_type: 'flare',
+      position: [100, 100] as [number, number], intensity: 1, scale: 1, pulse_speed: 0.15,
+      opacity: 1, visible: true, frame_range: [0, 9] as [number, number], keyframes: [],
+      scale_x: 1, scale_y: 1, skew_x: 0, skew_y: 0, rotation: 0,
+    };
+
+    await renderFrame(ctx, '/frame.png', [flareLayer], 0);
+
+    // resetTransform should be called (flare overrides the per-layer transform)
+    const resetCall = (ctx as any)._calls.find((c: any) => c.method === 'resetTransform');
+    expect(resetCall).toBeDefined();
+
+    // globalCompositeOperation should have been set to 'lighter'
+    const compositeCall = (ctx as any)._calls.find(
+      (c: any) => c.method === 'setCompositeOp' && c.args[0] === 'lighter',
+    );
+    expect(compositeCall).toBeDefined();
   });
 });
