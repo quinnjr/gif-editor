@@ -96,6 +96,9 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     }
                 }
             }
+            Layer::Flare(_) => {
+                // TODO(Task 4): composite flare layer
+            }
         }
     }
 

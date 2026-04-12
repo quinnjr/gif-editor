@@ -13,6 +13,7 @@ pub mod gif_decoder;
 pub mod image_source;
 pub mod layer;
 pub mod project;
+pub mod flare_renderer;
 pub mod text_renderer;
 pub mod video_decoder;
 

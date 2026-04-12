@@ -113,6 +113,8 @@ impl From<&Layer> for LayerInfo {
                 source_path: None,
                 keyframes: l.keyframes.clone(),
             },
+            // TODO(Task 3): implement full LayerInfo for FlareLayer
+            Layer::Flare(_) => todo!(),
         }
     }
 }
@@ -459,6 +461,7 @@ impl Project {
             match layer {
                 Layer::Image(l) => l.frame_range = (ns, ne),
                 Layer::Text(l) => l.frame_range = (ns, ne),
+                Layer::Flare(l) => l.frame_range = (ns, ne),
             }
         }
     }
@@ -487,6 +490,7 @@ impl Project {
             match layer {
                 Layer::Image(l) => l.keyframes = new_kfs,
                 Layer::Text(l) => l.keyframes = new_kfs,
+                Layer::Flare(l) => l.keyframes = new_kfs,
             }
         }
     }
@@ -759,6 +763,8 @@ impl Project {
                     l.keyframes = v;
                 }
             }
+            // TODO(Task 3): implement full update_layer for FlareLayer
+            Layer::Flare(_) => todo!(),
         }
 
         Ok(LayerInfo::from(&*layer))
@@ -813,6 +819,8 @@ impl Project {
                 "vertical" => l.scale_y *= -1.0,
                 _ => {}
             },
+            // Flare layers have no affine scale axes; flip is a no-op.
+            Layer::Flare(_) => {}
         }
 
         Ok(LayerInfo::from(&*layer))
@@ -832,6 +840,7 @@ impl Project {
         match &mut new_layer {
             Layer::Image(l) => l.id = uuid::Uuid::new_v4(),
             Layer::Text(l) => l.id = uuid::Uuid::new_v4(),
+            Layer::Flare(l) => l.id = uuid::Uuid::new_v4(),
         }
 
         let info = LayerInfo::from(&new_layer);
