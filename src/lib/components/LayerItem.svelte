@@ -163,6 +163,17 @@
         </label>
       {/if}
       {#if layer.layer_type === 'text'}
+        <label class="flex flex-col gap-1 text-xs text-zinc-300">
+          Text
+          <textarea
+            value={layer.text ?? ''}
+            rows="3"
+            onchange={async (e) => {
+              await project.updateLayer(layer.id, { text: (e.target as HTMLTextAreaElement).value });
+            }}
+            onclick={(e) => e.stopPropagation()}
+            class="w-full rounded bg-zinc-700 px-1 py-0.5 text-xs text-white resize-none" />
+        </label>
         <div class="flex items-center gap-1 text-xs">
           <span class="text-zinc-400">Align</span>
           {#each ['left', 'center', 'right'] as align (align)}
