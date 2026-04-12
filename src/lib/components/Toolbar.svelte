@@ -68,6 +68,16 @@
     }
   }
 
+  async function handleAddFlare() {
+    if (!project.metadata) return;
+    try {
+      const layer = await project.addFlareLayer();
+      ui.selectLayer(layer.id);
+    } catch (e) {
+      onerror(`Failed to add solar flare: ${e}`);
+    }
+  }
+
   async function handleUndo() {
     try { await project.undo(); } catch (e) { onerror(`Undo failed: ${e}`); }
   }
@@ -92,6 +102,10 @@
   <button onclick={handleMemeText} disabled={!project.isOpen}
     class="rounded bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:opacity-40">
     Meme Text
+  </button>
+  <button onclick={handleAddFlare} disabled={!project.isOpen}
+    class="rounded bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-500 disabled:opacity-40">
+    Solar Flare
   </button>
   <button onclick={handleUndo} disabled={!project.isOpen}
     class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"
