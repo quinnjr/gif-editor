@@ -131,7 +131,7 @@
             oninput={async (e) => {
               await project.updateLayer(layer.id, { intensity: parseFloat((e.target as HTMLInputElement).value) });
             }}
-            onclick={(e) => e.stopPropagation()}
+            onpointerdown={(e) => e.stopPropagation()}
             class="flex-1 accent-orange-500" />
           <span class="w-10 text-right">{(layer.intensity ?? 1).toFixed(2)}</span>
         </label>
@@ -142,7 +142,7 @@
             oninput={async (e) => {
               await project.updateLayer(layer.id, { scale: parseFloat((e.target as HTMLInputElement).value) });
             }}
-            onclick={(e) => e.stopPropagation()}
+            onpointerdown={(e) => e.stopPropagation()}
             class="flex-1 accent-orange-500" />
           <span class="w-10 text-right">{(layer.scale ?? 1).toFixed(2)}</span>
         </label>
@@ -153,7 +153,7 @@
             oninput={async (e) => {
               await project.updateLayer(layer.id, { pulse_speed: parseFloat((e.target as HTMLInputElement).value) });
             }}
-            onclick={(e) => e.stopPropagation()}
+            onpointerdown={(e) => e.stopPropagation()}
             class="flex-1 accent-orange-500" />
           <span class="w-10 text-right">{(layer.pulse_speed ?? 0.15).toFixed(2)}</span>
         </label>

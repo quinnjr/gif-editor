@@ -505,5 +505,12 @@ describe('renderFrame', () => {
       (c: any) => c.method === 'setCompositeOp' && c.args[0] === 'lighter',
     );
     expect(compositeCall).toBeDefined();
+
+    // globalCompositeOperation should be reset to 'source-over' after flare rendering
+    const resetCompositeCall = (ctx as any)._calls.filter(
+      (c: any) => c.method === 'setCompositeOp'
+    );
+    expect(resetCompositeCall.length).toBeGreaterThanOrEqual(2);
+    expect(resetCompositeCall[resetCompositeCall.length - 1].args[0]).toBe('source-over');
   });
 });

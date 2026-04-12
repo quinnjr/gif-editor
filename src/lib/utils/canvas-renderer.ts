@@ -145,6 +145,8 @@ export async function renderFrame(
         ctx.fillText(line, x, y);
       });
     } else if (layer.layer_type === 'flare') {
+      // resetTransform() cancels the per-layer affine transform applied above;
+      // flare elements must be drawn in canvas coordinates, not layer space.
       ctx.resetTransform();
       ctx.globalCompositeOperation = 'lighter';
 
@@ -240,6 +242,8 @@ export async function renderFrame(
         ctx.fill();
       }
 
+      // Composite op is also reset by ctx.restore() below; this explicit reset
+      // is defensive and makes the intent clear to future readers.
       ctx.globalCompositeOperation = 'source-over';
     }
 
