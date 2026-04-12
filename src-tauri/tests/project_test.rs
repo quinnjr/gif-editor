@@ -365,6 +365,9 @@ fn update_image_layer_all_fields() {
             position: (10.0, 20.0),
             opacity: 0.5,
         }]),
+        intensity: None,
+        scale: None,
+        pulse_speed: None,
     };
 
     let info = project.update_layer(layer_id, update).unwrap();
@@ -427,6 +430,9 @@ fn update_text_layer_all_fields() {
                 opacity: 0.0,
             },
         ]),
+        intensity: None,
+        scale: None,
+        pulse_speed: None,
     };
 
     let info = project.update_layer(layer_id, update).unwrap();
@@ -471,6 +477,9 @@ fn update_layer_not_found() {
         text_align: None,
         max_width: None,
         keyframes: None,
+        intensity: None,
+        scale: None,
+        pulse_speed: None,
     };
     assert!(project.update_layer(bogus_id, update).is_err());
 }

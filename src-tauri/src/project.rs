@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
 use crate::image_source::ImageSource;
-use crate::layer::{ImageLayer, Keyframe, Layer, Stroke, TextLayer};
+use crate::layer::{FlareLayer, ImageLayer, Keyframe, Layer, Stroke, TextLayer};
 use crate::video_decoder::VideoData;
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,10 @@ pub struct LayerInfo {
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
     pub source_path: Option<String>,
+    // Flare-specific (None for image/text layers)
+    pub intensity: Option<f64>,
+    pub scale: Option<f64>,
+    pub pulse_speed: Option<f64>,
     pub keyframes: Vec<Keyframe>,
 }
 
@@ -86,6 +90,9 @@ impl From<&Layer> for LayerInfo {
                 source_width: Some(l.source_width),
                 source_height: Some(l.source_height),
                 source_path: l.source_path.clone(),
+                intensity: None,
+                scale: None,
+                pulse_speed: None,
                 keyframes: l.keyframes.clone(),
             },
             Layer::Text(l) => LayerInfo {
@@ -111,10 +118,39 @@ impl From<&Layer> for LayerInfo {
                 source_width: None,
                 source_height: None,
                 source_path: None,
+                intensity: None,
+                scale: None,
+                pulse_speed: None,
                 keyframes: l.keyframes.clone(),
             },
-            // TODO(Task 3): implement full LayerInfo for FlareLayer
-            Layer::Flare(_) => todo!(),
+            Layer::Flare(l) => LayerInfo {
+                id: l.id,
+                name: l.name.clone(),
+                layer_type: "flare".to_string(),
+                position: l.position,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                skew_x: 0.0,
+                skew_y: 0.0,
+                rotation: 0.0,
+                opacity: l.opacity,
+                frame_range: l.frame_range,
+                visible: l.visible,
+                text: None,
+                font_family: None,
+                font_size: None,
+                color: None,
+                stroke: None,
+                text_align: None,
+                max_width: None,
+                source_width: None,
+                source_height: None,
+                source_path: None,
+                intensity: Some(l.intensity),
+                scale: Some(l.scale),
+                pulse_speed: Some(l.pulse_speed),
+                keyframes: l.keyframes.clone(),
+            },
         }
     }
 }
@@ -141,6 +177,9 @@ pub struct LayerUpdate {
     pub text_align: Option<String>,
     pub max_width: Option<f64>,
     pub keyframes: Option<Vec<Keyframe>>,
+    pub intensity: Option<f64>,
+    pub scale: Option<f64>,
+    pub pulse_speed: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +701,21 @@ impl Project {
         info
     }
 
+    /// Create a new solar flare layer covering all frames.
+    /// `position` defaults to the canvas centre when `None`.
+    pub fn add_flare_layer(&mut self, position: Option<(f64, f64)>) -> LayerInfo {
+        let frame_count = self.visible_frame_count();
+        let (width, height) = self.source.dimensions();
+
+        let mut layer = FlareLayer::new();
+        layer.position = position.unwrap_or((width as f64 / 2.0, height as f64 / 2.0));
+        layer.frame_range = (0, frame_count.saturating_sub(1));
+
+        let info = LayerInfo::from(&Layer::Flare(layer.clone()));
+        self.layers.push(Layer::Flare(layer));
+        info
+    }
+
     /// Apply a partial update to the layer identified by `id`.
     pub fn update_layer(&mut self, id: Uuid, changes: LayerUpdate) -> Result<LayerInfo, AppError> {
         let layer = self
@@ -763,8 +817,18 @@ impl Project {
                     l.keyframes = v;
                 }
             }
-            // TODO(Task 3): implement full update_layer for FlareLayer
-            Layer::Flare(_) => todo!(),
+            Layer::Flare(l) => {
+                if let Some(v) = changes.name { l.name = v; }
+                if let Some(v) = changes.position { l.position = v; }
+                if let Some(v) = changes.opacity { l.opacity = v; }
+                if let Some(v) = changes.frame_range { l.frame_range = v; }
+                if let Some(v) = changes.visible { l.visible = v; }
+                if let Some(v) = changes.intensity { l.intensity = v; }
+                if let Some(v) = changes.scale { l.scale = v; }
+                if let Some(v) = changes.pulse_speed { l.pulse_speed = v; }
+                if let Some(v) = changes.keyframes { l.keyframes = v; }
+                // All other fields are silently ignored for flare layers.
+            }
         }
 
         Ok(LayerInfo::from(&*layer))
