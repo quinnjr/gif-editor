@@ -128,6 +128,7 @@ impl From<&Layer> for LayerInfo {
                 name: l.name.clone(),
                 layer_type: "flare".to_string(),
                 position: l.position,
+                // Flares have no affine transform; these fields are fixed identity values.
                 scale_x: 1.0,
                 scale_y: 1.0,
                 skew_x: 0.0,
@@ -710,6 +711,9 @@ impl Project {
         let mut layer = FlareLayer::new();
         layer.position = position.unwrap_or((width as f64 / 2.0, height as f64 / 2.0));
         layer.frame_range = (0, frame_count.saturating_sub(1));
+        // When frame_count is 0, saturating_sub yields (0, 0). Callers must guard
+        // on visible_frame_count() > 0 before rendering; the compositor skips
+        // layers whose frame_range excludes the current frame index.
 
         let info = LayerInfo::from(&Layer::Flare(layer.clone()));
         self.layers.push(Layer::Flare(layer));
@@ -818,15 +822,33 @@ impl Project {
                 }
             }
             Layer::Flare(l) => {
-                if let Some(v) = changes.name { l.name = v; }
-                if let Some(v) = changes.position { l.position = v; }
-                if let Some(v) = changes.opacity { l.opacity = v; }
-                if let Some(v) = changes.frame_range { l.frame_range = v; }
-                if let Some(v) = changes.visible { l.visible = v; }
-                if let Some(v) = changes.intensity { l.intensity = v; }
-                if let Some(v) = changes.scale { l.scale = v; }
-                if let Some(v) = changes.pulse_speed { l.pulse_speed = v; }
-                if let Some(v) = changes.keyframes { l.keyframes = v; }
+                if let Some(v) = changes.name {
+                    l.name = v;
+                }
+                if let Some(v) = changes.position {
+                    l.position = v;
+                }
+                if let Some(v) = changes.opacity {
+                    l.opacity = v;
+                }
+                if let Some(v) = changes.frame_range {
+                    l.frame_range = v;
+                }
+                if let Some(v) = changes.visible {
+                    l.visible = v;
+                }
+                if let Some(v) = changes.intensity {
+                    l.intensity = v;
+                }
+                if let Some(v) = changes.scale {
+                    l.scale = v;
+                }
+                if let Some(v) = changes.pulse_speed {
+                    l.pulse_speed = v;
+                }
+                if let Some(v) = changes.keyframes {
+                    l.keyframes = v;
+                }
                 // All other fields are silently ignored for flare layers.
             }
         }
