@@ -96,6 +96,8 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     }
                 }
             }
+            // Flare layers are composited additively with no affine transform;
+            // render_flare() places all elements at canvas coordinates directly.
             Layer::Flare(flare_layer) => {
                 let (pos, opacity) =
                     match interpolate_keyframes(&flare_layer.keyframes, frame_index) {
@@ -108,6 +110,11 @@ pub fn composite_frame(base: &RgbaImage, layers: &[Layer], frame_index: usize) -
                     frame_index,
                     target.width(),
                     target.height(),
+                );
+                debug_assert_eq!(
+                    (flare_img.width(), flare_img.height()),
+                    (target.width(), target.height()),
+                    "render_flare must return a canvas-sized image"
                 );
                 additive_composite(&mut target, &flare_img, opacity);
             }
@@ -274,7 +281,9 @@ pub fn composite_rgba_buffer(
 /// Additively blend `src` onto `target` — each channel is clamped at 255.
 /// Used for light-emitting effects (lens flares) where the correct model
 /// is "add light" rather than "paint over".
-fn additive_composite(target: &mut RgbaImage, src: &RgbaImage, opacity: f64) {
+// Note: iterates the full canvas; a future optimisation could pass a bounding
+// box from render_flare() to skip the many zero-alpha pixels outside the flare.
+pub(crate) fn additive_composite(target: &mut RgbaImage, src: &RgbaImage, opacity: f64) {
     let (tw, th) = target.dimensions();
     for y in 0..th {
         for x in 0..tw {
@@ -302,4 +311,54 @@ fn alpha_blend(dst: &Rgba<u8>, src: &Rgba<u8>, src_alpha: f64) -> Rgba<u8> {
     let g = (src[1] as f64 * src_alpha + dst[1] as f64 * inv).round() as u8;
     let b = (src[2] as f64 * src_alpha + dst[2] as f64 * inv).round() as u8;
     Rgba([r, g, b, dst[3]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgba, RgbaImage};
+
+    fn make_image(w: u32, h: u32, r: u8, g: u8, b: u8, a: u8) -> RgbaImage {
+        let mut img = RgbaImage::new(w, h);
+        for pixel in img.pixels_mut() {
+            *pixel = Rgba([r, g, b, a]);
+        }
+        img
+    }
+
+    #[test]
+    fn additive_composite_adds_channels_clamped() {
+        // target: solid dark grey (100, 100, 100, 255)
+        // src:    solid white (255, 255, 255, 255) at opacity 1.0
+        // expected: each channel clamps to 255
+        let mut target = make_image(4, 4, 100, 100, 100, 255);
+        let src = make_image(4, 4, 255, 255, 255, 255);
+        additive_composite(&mut target, &src, 1.0);
+        let p = *target.get_pixel(0, 0);
+        assert_eq!(p[0], 255);
+        assert_eq!(p[1], 255);
+        assert_eq!(p[2], 255);
+        assert_eq!(p[3], 255, "dst alpha must be preserved");
+    }
+
+    #[test]
+    fn additive_composite_skips_zero_alpha_pixels() {
+        let mut target = make_image(4, 4, 50, 50, 50, 255);
+        let src = make_image(4, 4, 255, 255, 255, 0); // fully transparent src
+        additive_composite(&mut target, &src, 1.0);
+        let p = *target.get_pixel(0, 0);
+        assert_eq!(p[0], 50, "zero-alpha pixels must not change target");
+    }
+
+    #[test]
+    fn additive_composite_respects_opacity() {
+        // target: 0 everywhere
+        // src:    255 channels, alpha 255, opacity 0.5
+        // expected: each channel ≈ 127 (255 * 1.0 * 0.5)
+        let mut target = make_image(4, 4, 0, 0, 0, 255);
+        let src = make_image(4, 4, 255, 255, 255, 255);
+        additive_composite(&mut target, &src, 0.5);
+        let p = *target.get_pixel(0, 0);
+        assert!(p[0] >= 126 && p[0] <= 128, "expected ~127, got {}", p[0]);
+    }
 }
