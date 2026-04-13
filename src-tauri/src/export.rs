@@ -218,7 +218,7 @@ pub fn export_video(
         }
         ExportFormat::Gif | ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
             return Err(AppError::Export(
-                "export_video called with Gif format; use export_gif instead".to_string(),
+                "export_video called with non-video format; use export_gif or export_image instead".to_string(),
             ));
         }
     };
@@ -341,6 +341,7 @@ pub fn export_image(
                 .map_err(|e| AppError::Export(e.to_string()))?;
         }
         ExportFormat::WebP => {
+            // quality field unused; WebP is always written lossless
             image::DynamicImage::ImageRgba8(final_img)
                 .save(output_path)
                 .map_err(|e| AppError::Export(e.to_string()))?;
