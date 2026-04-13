@@ -1,8 +1,9 @@
 use gif_editor_lib::export::{
-    ExportFormat, ExportSettings, export_gif, export_video, ffmpeg_available,
+    ExportFormat, ExportSettings, export_gif, export_image, export_video, ffmpeg_available,
 };
 use gif_editor_lib::gif_decoder::GifData;
 use gif_editor_lib::layer::{ImageLayer, Layer, TextLayer};
+use image::ImageReader;
 use std::path::PathBuf;
 
 fn fixture_path() -> PathBuf {
@@ -239,7 +240,7 @@ fn export_video_mp4_if_ffmpeg_present() {
 }
 
 #[test]
-fn export_video_gif_format_rejected() {
+fn export_video_rejects_non_video_format() {
     if !ffmpeg_available() {
         eprintln!("skipping export_video_gif_format test: ffmpeg not on PATH");
         return;
@@ -309,9 +310,6 @@ fn export_gif_progress_callback_counts() {
 // ---------------------------------------------------------------------------
 // export_image tests
 // ---------------------------------------------------------------------------
-
-use gif_editor_lib::export::export_image;
-use image::ImageReader;
 
 #[test]
 fn export_image_png_produces_valid_file() {
@@ -390,7 +388,7 @@ fn export_image_png_with_resize() {
 }
 
 #[test]
-fn export_image_jpeg_flattens_alpha() {
+fn export_image_jpeg_produces_rgb_output() {
     ensure_test_gif();
     let mut src = GifData::open(&fixture_path()).unwrap();
     let output = tempfile::NamedTempFile::new().unwrap();
