@@ -30,6 +30,9 @@ pub enum ExportFormat {
     Gif,
     Mp4,
     WebM,
+    Png,
+    Jpeg,
+    WebP,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +42,9 @@ pub struct ExportSettings {
     pub quality: u8,
     /// Optional resize target (width, height) in pixels.
     pub resize: Option<(u32, u32)>,
+    /// Frame index to export for still-image formats (Png, Jpeg, WebP).
+    /// Ignored for animated formats (Gif, Mp4, WebM).
+    pub frame_index: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +216,7 @@ pub fn export_video(
             let crf = (63.0 * (1.0 - settings.quality as f64 / 100.0)).round() as u32;
             ("libvpx-vp9", crf)
         }
-        ExportFormat::Gif => {
+        ExportFormat::Gif | ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
             return Err(AppError::Export(
                 "export_video called with Gif format; use export_gif instead".to_string(),
             ));
@@ -230,7 +236,9 @@ pub fn export_video(
     let audio_codec = match settings.format {
         ExportFormat::Mp4 => "aac",
         ExportFormat::WebM => "libopus",
-        ExportFormat::Gif => unreachable!(),
+        ExportFormat::Gif | ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
+            unreachable!()
+        }
     };
 
     let mut cmd = Command::new("ffmpeg");
@@ -266,6 +274,83 @@ pub fn export_video(
         return Err(AppError::Export(format!(
             "ffmpeg exited with status {status}"
         )));
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Still image export (PNG, JPEG, WebP)
+// ---------------------------------------------------------------------------
+
+/// Flatten an RGBA image onto a white background, producing an RGB image.
+///
+/// JPEG does not support transparency; this converts semi-transparent pixels
+/// to their visually equivalent opaque colour against white.
+fn flatten_alpha(img: &image::RgbaImage) -> image::RgbImage {
+    let (w, h) = img.dimensions();
+    let mut out = image::RgbImage::new(w, h);
+    for (x, y, pixel) in img.enumerate_pixels() {
+        let a = pixel[3] as f32 / 255.0;
+        let r = (a * pixel[0] as f32 + (1.0 - a) * 255.0).round() as u8;
+        let g = (a * pixel[1] as f32 + (1.0 - a) * 255.0).round() as u8;
+        let b = (a * pixel[2] as f32 + (1.0 - a) * 255.0).round() as u8;
+        out.put_pixel(x, y, image::Rgb([r, g, b]));
+    }
+    out
+}
+
+/// Export a single composited frame as a PNG, JPEG, or WebP still image.
+///
+/// `frame_index` is the source frame index to composite and export.
+/// Returns `AppError::Export` if called with an animated format.
+pub fn export_image(
+    source: &mut dyn FrameSource,
+    layers: &[Layer],
+    settings: &ExportSettings,
+    output_path: &Path,
+    frame_index: usize,
+) -> Result<(), AppError> {
+    let (src_w, src_h) = source.dimensions();
+    let (out_w, out_h) = settings.resize.unwrap_or((src_w, src_h));
+
+    let base = source.get_frame(frame_index)?;
+    let composited = compositor::composite_frame(&base, layers, frame_index);
+
+    let final_img = if (out_w, out_h) != (src_w, src_h) {
+        imageops::resize(&composited, out_w, out_h, imageops::FilterType::Lanczos3)
+    } else {
+        composited
+    };
+
+    match settings.format {
+        ExportFormat::Png => {
+            image::DynamicImage::ImageRgba8(final_img)
+                .save(output_path)
+                .map_err(|e| AppError::Export(e.to_string()))?;
+        }
+        ExportFormat::Jpeg => {
+            let rgb = flatten_alpha(&final_img);
+            let file = File::create(output_path)?;
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+                std::io::BufWriter::new(file),
+                settings.quality,
+            );
+            image::DynamicImage::ImageRgb8(rgb)
+                .write_with_encoder(encoder)
+                .map_err(|e| AppError::Export(e.to_string()))?;
+        }
+        ExportFormat::WebP => {
+            image::DynamicImage::ImageRgba8(final_img)
+                .save(output_path)
+                .map_err(|e| AppError::Export(e.to_string()))?;
+        }
+        _ => {
+            return Err(AppError::Export(
+                "export_image called with animated format; use export_gif or export_video"
+                    .to_string(),
+            ));
+        }
     }
 
     Ok(())

@@ -239,6 +239,12 @@ pub async fn export_project(
             &delays,
             on_progress,
         ),
+        // TODO(Task 4): wire up still-image export via export_image.
+        export::ExportFormat::Png
+        | export::ExportFormat::Jpeg
+        | export::ExportFormat::WebP => Err(crate::error::AppError::Export(
+            "still-image export not yet wired to command".to_string(),
+        )),
     }
 }
 
