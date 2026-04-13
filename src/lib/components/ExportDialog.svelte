@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import * as cmd from '$lib/commands';
   import { project } from '$lib/stores/project.svelte';
+  import { ui } from '$lib/stores/ui.svelte';
   import type { ExportFormat } from '$lib/types';
 
   let { open = false, onclose }: { open: boolean; onclose: () => void } = $props();
@@ -14,6 +15,11 @@
   let ffmpegAvailable = $state(false);
   let error = $state('');
 
+  const stillFormats = new Set<ExportFormat>(['Png', 'Jpeg', 'WebP']);
+  const isStill = $derived(stillFormats.has(format));
+  // Quality is meaningful only for JPEG; PNG and WebP are lossless.
+  const showQuality = $derived(format === 'Jpeg');
+
   $effect(() => {
     if (open) {
       cmd.checkFfmpeg().then((available) => (ffmpegAvailable = available));
@@ -21,7 +27,12 @@
   });
 
   const formatExtensions: Record<ExportFormat, string> = {
-    Gif: 'gif', Mp4: 'mp4', WebM: 'webm',
+    Gif: 'gif',
+    Mp4: 'mp4',
+    WebM: 'webm',
+    Png: 'png',
+    Jpeg: 'jpg',
+    WebP: 'webp',
   };
 
   async function handleExport() {
@@ -41,7 +52,15 @@
     });
 
     try {
-      await cmd.exportProject({ format, quality, resize: null }, path);
+      await cmd.exportProject(
+        {
+          format,
+          quality,
+          resize: null,
+          frame_index: isStill ? ui.currentFrame : null,
+        },
+        path,
+      );
       onclose();
     } catch (e) {
       error = `Export failed: ${e}`;
@@ -67,15 +86,24 @@
           <option value="Gif">GIF</option>
           <option value="Mp4" disabled={!ffmpegAvailable}>MP4 {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
           <option value="WebM" disabled={!ffmpegAvailable}>WebM {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
+          <option value="Png">PNG (lossless)</option>
+          <option value="Jpeg">JPEG</option>
+          <option value="WebP">WebP (lossless)</option>
         </select>
       </label>
 
-      <label class="block text-sm">
-        Quality: {quality}
-        <input type="range" min="1" max="100" bind:value={quality} class="mt-1 block w-full accent-blue-500" />
-      </label>
+      {#if isStill}
+        <p class="text-xs text-zinc-400">Exports frame {ui.currentFrame + 1} as a still image.</p>
+      {/if}
 
-      {#if exporting}
+      {#if showQuality}
+        <label class="block text-sm">
+          Quality: {quality}
+          <input type="range" min="1" max="100" bind:value={quality} class="mt-1 block w-full accent-blue-500" />
+        </label>
+      {/if}
+
+      {#if exporting && !isStill}
         {@const total = project.metadata?.frame_count ?? 1}
         {@const pct = Math.min(100, Math.round((progress / total) * 100))}
         <div class="h-2 rounded-full bg-zinc-700">
