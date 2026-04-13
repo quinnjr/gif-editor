@@ -119,11 +119,32 @@ describe('commands', () => {
     expect(result).toBe('data:image/png;base64,...');
   });
 
-  it('exportProject calls invoke with correct args', async () => {
+  it('exportProject calls invoke with correct args for animated format', async () => {
     mockedInvoke.mockResolvedValue(undefined);
-    const settings = { format: 'Gif' as const, quality: 80, resize: null };
+    const settings = { format: 'Gif' as const, quality: 80, resize: null, frame_index: null };
     await exportProject(settings, '/out.gif');
     expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.gif' });
+  });
+
+  it('exportProject passes frame_index for still formats', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'Png' as const, quality: 80, resize: null, frame_index: 3 };
+    await exportProject(settings, '/out.png');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.png' });
+  });
+
+  it('exportProject handles Jpeg format with quality', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'Jpeg' as const, quality: 75, resize: null, frame_index: 0 };
+    await exportProject(settings, '/out.jpg');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.jpg' });
+  });
+
+  it('exportProject handles WebP format', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'WebP' as const, quality: 80, resize: null, frame_index: 1 };
+    await exportProject(settings, '/out.webp');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.webp' });
   });
 
   it('getLayers calls invoke with no extra args', async () => {
