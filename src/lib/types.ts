@@ -69,10 +69,11 @@ export interface LayerUpdate {
   pulse_speed?: number;
 }
 
-export type ExportFormat = 'Gif' | 'Mp4' | 'WebM';
+export type ExportFormat = 'Gif' | 'Mp4' | 'WebM' | 'Png' | 'Jpeg' | 'WebP';
 
 export interface ExportSettings {
   format: ExportFormat;
   quality: number;
   resize?: [number, number] | null;
+  frame_index?: number | null;
 }
