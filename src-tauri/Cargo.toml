@@ -20,6 +20,6 @@ image = { version = "0.25", features = ["gif", "png", "jpeg"] }
 ab_glyph = "0.2"
 imagequant = "4"
 uuid = { version = "1", features = ["v4", "serde"] }
-lru = "0.12"
+lru = "0.16"
 tempfile = "3"
 thiserror = "2"
