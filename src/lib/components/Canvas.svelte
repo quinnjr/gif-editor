@@ -140,8 +140,8 @@
 
     let w: number, h: number;
     if (layer.layer_type === 'image') {
-      w = layer.source_width ?? 0;
-      h = layer.source_height ?? 0;
+      w = layer.source_width ?? 100;
+      h = layer.source_height ?? 100;
     } else {
       const fontSize = layer.font_size ?? 48;
       w = (layer.text?.length ?? 1) * fontSize * 0.6;
