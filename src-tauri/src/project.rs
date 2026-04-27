@@ -57,6 +57,7 @@ pub struct LayerInfo {
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
     pub source_path: Option<String>,
+    pub is_animated: Option<bool>,
     // Flare-specific (None for image/text layers)
     pub intensity: Option<f64>,
     pub scale: Option<f64>,
@@ -90,6 +91,7 @@ impl From<&Layer> for LayerInfo {
                 source_width: Some(l.source_width),
                 source_height: Some(l.source_height),
                 source_path: l.source_path.clone(),
+                is_animated: Some(l.is_animated),
                 intensity: None,
                 scale: None,
                 pulse_speed: None,
@@ -118,6 +120,7 @@ impl From<&Layer> for LayerInfo {
                 source_width: None,
                 source_height: None,
                 source_path: None,
+                is_animated: None,
                 intensity: None,
                 scale: None,
                 pulse_speed: None,
@@ -147,6 +150,7 @@ impl From<&Layer> for LayerInfo {
                 source_width: None,
                 source_height: None,
                 source_path: None,
+                is_animated: None,
                 intensity: Some(l.intensity),
                 scale: Some(l.scale),
                 pulse_speed: Some(l.pulse_speed),
@@ -644,6 +648,7 @@ impl Project {
             let mut l = ImageLayer::new(file_name, w, h);
             l.image_data = frames.first().cloned();
             l.frames = frames;
+            l.is_animated = gif_frame_count > 1;
             l
         } else {
             // Static image.

@@ -74,6 +74,8 @@ pub struct ImageLayer {
     pub source_height: u32,
     pub source_path: Option<String>,
     pub keyframes: Vec<Keyframe>,
+    /// True if this layer has multiple frames (animated GIF overlay).
+    pub is_animated: bool,
 }
 
 impl ImageLayer {
@@ -96,6 +98,7 @@ impl ImageLayer {
             source_height: height,
             source_path: None,
             keyframes: Vec::new(),
+            is_animated: false,
         }
     }
 }

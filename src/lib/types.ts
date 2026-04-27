@@ -39,6 +39,7 @@ export interface LayerInfo {
   source_width?: number;
   source_height?: number;
   source_path?: string;
+  is_animated?: boolean;
   intensity?: number;
   scale?: number;
   pulse_speed?: number;

@@ -85,7 +85,13 @@
 
     let stale = false;
 
-    if (previewExport) {
+    // Automatically use backend compositor when animated GIF layers are present,
+    // since the frontend can't correctly synchronize GIF frames with the timeline
+    // or apply transforms to browser-loaded animated GIFs.
+    const hasAnimatedLayers = layers.some(l => l.is_animated);
+    const useBackendCompositor = previewExport || hasAnimatedLayers;
+
+    if (useBackendCompositor) {
       cmd.renderComposite(frame).then((dataUrl) => {
         if (stale || !ctx) return;
         const img = new Image();
