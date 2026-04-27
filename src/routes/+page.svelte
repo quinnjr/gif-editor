@@ -4,7 +4,6 @@
   import Canvas from '$lib/components/Canvas.svelte';
   import LayerPanel from '$lib/components/LayerPanel.svelte';
   import Timeline from '$lib/components/Timeline.svelte';
-  import { project } from '$lib/stores/project.svelte';
 
   let toastMessage = $state('');
   let toastType = $state<'error' | 'success'>('error');
@@ -13,22 +12,7 @@
     toastMessage = msg;
     toastType = 'error';
   }
-
-  function handleKeyDown(e: KeyboardEvent) {
-    // Ctrl/Cmd + Shift + = : Scale all layers up by 10%
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '=') {
-      e.preventDefault();
-      project.scaleAllLayers(1.1, 1.1);
-    }
-    // Ctrl/Cmd + Shift + - : Scale all layers down by 10%
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '-') {
-      e.preventDefault();
-      project.scaleAllLayers(0.9, 0.9);
-    }
-  }
 </script>
-
-<svelte:window onkeydown={handleKeyDown} />
 
 <div class="flex h-screen flex-col bg-zinc-900 text-white">
   <Toolbar onerror={showError} />

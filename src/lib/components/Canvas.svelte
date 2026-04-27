@@ -64,6 +64,7 @@
   let handleOrigScaleY = $state(1);
   let handleOrigSkewX = $state(0);
   let handleOrigSkewY = $state(0);
+  let wasResizingAllLayers = $state(false);
 
   // Initialise the 2D context once the canvas element is bound
   $effect(() => {
@@ -296,21 +297,49 @@
         const rawSx = handleOrigScaleX + dx / w;
         const rawSy = handleOrigScaleY + dy / h;
 
+        // Track if Alt was held for onPointerUp
+        wasResizingAllLayers = e.altKey;
+
         if (e.shiftKey) {
-          project.layers = project.layers.map((l) =>
-            l.id === handleLayerId
-              ? { ...l, scale_x: rawSx, scale_y: rawSy }
-              : l,
-          );
+          // Shift: free-form resize (non-uniform)
+          if (e.altKey) {
+            // Alt+Shift: resize all layers non-uniformly
+            const scaleXRatio = rawSx / handleOrigScaleX;
+            const scaleYRatio = rawSy / handleOrigScaleY;
+            project.layers = project.layers.map((l) => ({
+              ...l,
+              scale_x: l.scale_x * scaleXRatio,
+              scale_y: l.scale_y * scaleYRatio,
+            }));
+          } else {
+            // Shift only: resize selected layer non-uniformly
+            project.layers = project.layers.map((l) =>
+              l.id === handleLayerId
+                ? { ...l, scale_x: rawSx, scale_y: rawSy }
+                : l,
+            );
+          }
         } else {
+          // Default: uniform resize (maintain aspect ratio)
           const origDiag = Math.sqrt(handleOrigScaleX ** 2 + handleOrigScaleY ** 2);
           const newDiag = Math.sqrt(rawSx ** 2 + rawSy ** 2);
           const ratio = origDiag > 0 ? newDiag / origDiag : 1;
-          project.layers = project.layers.map((l) =>
-            l.id === handleLayerId
-              ? { ...l, scale_x: handleOrigScaleX * ratio, scale_y: handleOrigScaleY * ratio }
-              : l,
-          );
+
+          if (e.altKey) {
+            // Alt: resize all layers uniformly
+            project.layers = project.layers.map((l) => ({
+              ...l,
+              scale_x: l.scale_x * ratio,
+              scale_y: l.scale_y * ratio,
+            }));
+          } else {
+            // Default: resize selected layer uniformly
+            project.layers = project.layers.map((l) =>
+              l.id === handleLayerId
+                ? { ...l, scale_x: handleOrigScaleX * ratio, scale_y: handleOrigScaleY * ratio }
+                : l,
+            );
+          }
         }
       } else {
         if (activeHandle === 'top' || activeHandle === 'bottom') {
@@ -345,17 +374,30 @@
 
   async function onPointerUp(_e: PointerEvent) {
     if (activeHandle && handleLayerId) {
-      const layer = project.layers.find((l) => l.id === handleLayerId);
-      if (layer) {
-        await project.updateLayer(handleLayerId, {
-          scale_x: layer.scale_x,
-          scale_y: layer.scale_y,
-          skew_x: layer.skew_x,
-          skew_y: layer.skew_y,
-        });
+      if (wasResizingAllLayers) {
+        // Alt was held: persist scale changes for all layers
+        const updates = project.layers.map(l =>
+          project.updateLayer(l.id, {
+            scale_x: l.scale_x,
+            scale_y: l.scale_y,
+          })
+        );
+        await Promise.all(updates);
+      } else {
+        // Normal resize: persist only the selected layer
+        const layer = project.layers.find((l) => l.id === handleLayerId);
+        if (layer) {
+          await project.updateLayer(handleLayerId, {
+            scale_x: layer.scale_x,
+            scale_y: layer.scale_y,
+            skew_x: layer.skew_x,
+            skew_y: layer.skew_y,
+          });
+        }
       }
       activeHandle = null;
       handleLayerId = null;
+      wasResizingAllLayers = false;
       return;
     }
 
