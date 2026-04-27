@@ -54,6 +54,7 @@ pub fn run() {
             commands::redo,
             commands::flip_layer,
             commands::duplicate_layer,
+            commands::scale_all_layers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

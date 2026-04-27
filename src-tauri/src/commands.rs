@@ -321,3 +321,16 @@ pub async fn duplicate_layer(
     let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.duplicate_layer(id)
 }
+
+/// Scale all layers by the given factors.
+#[tauri::command]
+pub async fn scale_all_layers(
+    scale_x: f64,
+    scale_y: f64,
+    state: State<'_, ProjectState>,
+) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut *guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.scale_all_layers(scale_x, scale_y)
+}

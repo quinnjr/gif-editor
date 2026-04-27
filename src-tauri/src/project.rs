@@ -939,6 +939,26 @@ impl Project {
         Ok(info)
     }
 
+    /// Scale all layers by multiplying their current scale values.
+    pub fn scale_all_layers(&mut self, scale_x: f64, scale_y: f64) -> Result<Vec<LayerInfo>, AppError> {
+        for layer in &mut self.layers {
+            match layer {
+                Layer::Image(l) => {
+                    l.scale_x *= scale_x;
+                    l.scale_y *= scale_y;
+                }
+                Layer::Text(l) => {
+                    l.scale_x *= scale_x;
+                    l.scale_y *= scale_y;
+                }
+                Layer::Flare(_) => {
+                    // Flare layers don't have affine transforms
+                }
+            }
+        }
+        Ok(self.get_layers())
+    }
+
     /// Composite all layers onto the GIF frame at `logical_index`, save the
     /// result as a PNG in the temp directory, and return its path.
     pub fn render_composite(&mut self, logical_index: usize) -> Result<String, AppError> {

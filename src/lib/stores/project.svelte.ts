@@ -107,6 +107,10 @@ class ProjectStore {
     this.layers = updated;
     return newLayer;
   }
+
+  async scaleAllLayers(scaleX: number, scaleY: number) {
+    this.layers = await cmd.scaleAllLayers(scaleX, scaleY);
+  }
 }
 
 export const project = new ProjectStore();

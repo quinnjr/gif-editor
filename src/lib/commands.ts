@@ -90,3 +90,7 @@ export async function flipLayer(id: string, axis: 'horizontal' | 'vertical'): Pr
 export async function duplicateLayer(id: string): Promise<LayerInfo> {
   return invoke('duplicate_layer', { id });
 }
+
+export async function scaleAllLayers(scaleX: number, scaleY: number): Promise<LayerInfo[]> {
+  return invoke('scale_all_layers', { scaleX, scaleY });
+}
