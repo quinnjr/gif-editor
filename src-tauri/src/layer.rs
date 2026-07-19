@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -54,13 +56,18 @@ pub fn interpolate_keyframes(
 pub struct ImageLayer {
     pub id: Uuid,
     pub name: String,
+    /// Pixel data is Arc-shared: cloning a layer (undo-history snapshots,
+    /// duplicate_layer) copies a pointer, not the buffer.  This is sound
+    /// because decoded pixels are immutable after construction — transforms
+    /// (flip, scale, skew) only touch the scalar fields below.
     #[serde(skip)]
-    pub image_data: Option<image::RgbaImage>,
+    pub image_data: Option<Arc<image::RgbaImage>>,
     /// For animated GIF overlays: all decoded frames.  When non-empty the
     /// compositor picks `frames[(project_frame - range_start) % len]`
-    /// instead of `image_data`.
+    /// instead of `image_data`.  Arc-shared for the same reason as
+    /// `image_data`; frames are built once at decode and only read after.
     #[serde(skip)]
-    pub frames: Vec<image::RgbaImage>,
+    pub frames: Arc<Vec<image::RgbaImage>>,
     pub position: (f64, f64),
     pub scale_x: f64,
     pub scale_y: f64,
@@ -84,7 +91,7 @@ impl ImageLayer {
             id: Uuid::new_v4(),
             name,
             image_data: None,
-            frames: Vec::new(),
+            frames: Arc::new(Vec::new()),
             position: (0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,
@@ -103,6 +110,9 @@ impl ImageLayer {
     }
 }
 
+// Adding a rasterisation-affecting field?  Update BOTH cache keys:
+// `RenderCacheKey` in src/text_renderer.rs and `textRasterKey` in
+// src/lib/utils/canvas-renderer.ts, or stale rasters will be served.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextLayer {
     pub id: Uuid,
@@ -128,7 +138,9 @@ pub struct TextLayer {
 
 impl TextLayer {
     pub fn new(text: String) -> Self {
-        let name = format!("Text: {}", &text[..text.len().min(20)]);
+        // Truncate by characters, not bytes: byte slicing panics when the
+        // cut lands inside a multi-byte UTF-8 sequence (e.g. emoji).
+        let name = format!("Text: {}", text.chars().take(20).collect::<String>());
         Self {
             id: Uuid::new_v4(),
             name,

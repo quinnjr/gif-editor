@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::compositor::composite_frame;
 use crate::error::AppError;
+use crate::export::{ExportFormat, ExportSettings, ExportSnapshot, ExportingPlaceholder};
 use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
 use crate::image_source::ImageSource;
@@ -160,8 +161,25 @@ impl From<&Layer> for LayerInfo {
     }
 }
 
+/// Deserialize a present field (including an explicit `null`) as `Some(...)`.
+///
+/// Combined with `#[serde(default)]` this yields the double-Option pattern:
+/// an absent field stays `None` (no change) while a present `null` becomes
+/// `Some(None)` (clear the value).
+fn deserialize_some<'de, T, D>(d: D) -> Result<Option<T>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(d).map(Some)
+}
+
 /// Partial update payload received from the frontend.  Every field is
 /// optional; only `Some` fields are applied.
+///
+/// `stroke` and `max_width` are nullable on the layer itself, so they use the
+/// double-Option pattern: `None` = no change, `Some(None)` = clear the field
+/// (frontend sent an explicit `null`), `Some(Some(v))` = set to `v`.
 #[derive(serde::Deserialize, Default)]
 pub struct LayerUpdate {
     pub name: Option<String>,
@@ -178,9 +196,11 @@ pub struct LayerUpdate {
     pub font_family: Option<String>,
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
-    pub stroke: Option<Stroke>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub stroke: Option<Option<Stroke>>,
     pub text_align: Option<String>,
-    pub max_width: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub max_width: Option<Option<f64>>,
     pub keyframes: Option<Vec<Keyframe>>,
     pub intensity: Option<f64>,
     pub scale: Option<f64>,
@@ -219,6 +239,42 @@ impl AppState {
             history: Vec::new(),
             redo_stack: Vec::new(),
         }
+    }
+
+    /// Undo the last mutating action, restoring the most recent history
+    /// snapshot and pushing the replaced state onto the redo stack.
+    ///
+    /// Returns the resulting layer list, or `None` when no project is open.
+    /// When the history stack is empty the current layers are returned
+    /// unchanged.
+    pub fn undo(&mut self) -> Option<Vec<LayerInfo>> {
+        let project = self.project.as_mut()?;
+        let Some(entry) = self.history.pop() else {
+            return Some(project.get_layers());
+        };
+        self.redo_stack.push(HistoryEntry {
+            layers: std::mem::replace(&mut project.layers, entry.layers),
+            excluded_frames: std::mem::replace(&mut project.excluded_frames, entry.excluded_frames),
+        });
+        Some(project.get_layers())
+    }
+
+    /// Redo the last undone action, restoring the most recent redo snapshot
+    /// and pushing the replaced state back onto the history stack.
+    ///
+    /// Returns the resulting layer list, or `None` when no project is open.
+    /// When the redo stack is empty the current layers are returned
+    /// unchanged.
+    pub fn redo(&mut self) -> Option<Vec<LayerInfo>> {
+        let project = self.project.as_mut()?;
+        let Some(entry) = self.redo_stack.pop() else {
+            return Some(project.get_layers());
+        };
+        self.history.push(HistoryEntry {
+            layers: std::mem::replace(&mut project.layers, entry.layers),
+            excluded_frames: std::mem::replace(&mut project.excluded_frames, entry.excluded_frames),
+        });
+        Some(project.get_layers())
     }
 }
 
@@ -321,6 +377,15 @@ impl Project {
         }
     }
 
+    /// Return all source frame indices that are currently visible, in
+    /// timeline order.  Equivalent to mapping every logical index through
+    /// `logical_to_source`, but computed in a single O(n) pass.
+    pub fn source_indices(&self) -> Vec<usize> {
+        (0..self.source.frame_count())
+            .filter(|i| !self.excluded_frames.contains(i))
+            .collect()
+    }
+
     pub fn logical_to_source(&self, logical: usize) -> Option<usize> {
         let total = self.source.frame_count();
         let mut count = 0usize;
@@ -351,12 +416,12 @@ impl Project {
     // -----------------------------------------------------------------------
 
     pub fn delete_frames(&mut self, logical_indices: &[usize]) -> Result<GifMetadata, AppError> {
-        let mut source_indices: Vec<usize> = Vec::new();
-        for &li in logical_indices {
-            if let Some(si) = self.logical_to_source(li) {
-                source_indices.push(si);
-            }
-        }
+        // Collect into a set: duplicate logical indices map to the same source
+        // frame and must not be double-counted by the delete-all guard below.
+        let source_indices: BTreeSet<usize> = logical_indices
+            .iter()
+            .filter_map(|&li| self.logical_to_source(li))
+            .collect();
 
         let new_excluded_count = self.excluded_frames.len() + source_indices.len();
         if new_excluded_count >= self.source.frame_count() {
@@ -589,9 +654,7 @@ impl Project {
 
         if !png_path.exists() {
             let frame: RgbaImage = self.source.get_frame(src_index)?;
-            frame
-                .save(&png_path)
-                .map_err(|e| AppError::Export(e.to_string()))?;
+            save_temp_png(&frame, &png_path)?;
         }
 
         Ok(png_path.to_string_lossy().into_owned())
@@ -646,8 +709,8 @@ impl Project {
             }
 
             let mut l = ImageLayer::new(file_name, w, h);
-            l.image_data = frames.first().cloned();
-            l.frames = frames;
+            l.image_data = frames.first().cloned().map(std::sync::Arc::new);
+            l.frames = std::sync::Arc::new(frames);
             l.is_animated = gif_frame_count > 1;
             l
         } else {
@@ -657,7 +720,7 @@ impl Project {
                 .to_rgba8();
             let (w, h) = img.dimensions();
             let mut l = ImageLayer::new(file_name, w, h);
-            l.image_data = Some(img);
+            l.image_data = Some(std::sync::Arc::new(img));
             l
         };
 
@@ -813,14 +876,16 @@ impl Project {
                 if let Some(v) = changes.color {
                     l.color = v;
                 }
-                if changes.stroke.is_some() {
-                    l.stroke = changes.stroke;
+                if let Some(v) = changes.stroke {
+                    // Some(None) clears the stroke; Some(Some(s)) sets it.
+                    l.stroke = v;
                 }
                 if let Some(v) = changes.text_align {
                     l.text_align = v;
                 }
-                if changes.max_width.is_some() {
-                    l.max_width = changes.max_width;
+                if let Some(v) = changes.max_width {
+                    // Some(None) clears the cap; Some(Some(w)) sets it.
+                    l.max_width = v;
                 }
                 if let Some(v) = changes.keyframes {
                     l.keyframes = v;
@@ -940,7 +1005,11 @@ impl Project {
     }
 
     /// Scale all layers by multiplying their current scale values.
-    pub fn scale_all_layers(&mut self, scale_x: f64, scale_y: f64) -> Result<Vec<LayerInfo>, AppError> {
+    pub fn scale_all_layers(
+        &mut self,
+        scale_x: f64,
+        scale_y: f64,
+    ) -> Result<Vec<LayerInfo>, AppError> {
         for layer in &mut self.layers {
             match layer {
                 Layer::Image(l) => {
@@ -975,9 +1044,7 @@ impl Project {
             .temp_dir
             .path()
             .join(format!("composite_{src_index:05}.png"));
-        composited
-            .save(&out_path)
-            .map_err(|e| AppError::Export(e.to_string()))?;
+        save_temp_png(&composited, &out_path)?;
 
         Ok(out_path.to_string_lossy().into_owned())
     }
@@ -986,4 +1053,97 @@ impl Project {
     pub fn get_layers(&self) -> Vec<LayerInfo> {
         self.layers.iter().map(LayerInfo::from).collect()
     }
+
+    // -----------------------------------------------------------------------
+    // Export source hand-off
+    // -----------------------------------------------------------------------
+
+    /// Phase 1 of an export: snapshot everything the export needs and move
+    /// the frame source out of the project, leaving an `ExportingPlaceholder`
+    /// behind so metadata queries keep working while the export owns the real
+    /// source.
+    ///
+    /// Fails — before anything is swapped — with "export already in progress"
+    /// when the placeholder is already installed (a concurrent export owns
+    /// the real source), and with an out-of-bounds error when
+    /// `settings.frame_index` does not map to a visible frame for still-image
+    /// formats.
+    pub fn take_source_for_export(
+        &mut self,
+        settings: &ExportSettings,
+    ) -> Result<ExportSnapshot, AppError> {
+        if self
+            .source
+            .as_any_mut()
+            .downcast_mut::<ExportingPlaceholder>()
+            .is_some()
+        {
+            return Err(AppError::Export("export already in progress".into()));
+        }
+
+        // Resolve the still-image frame mapping while the project is intact:
+        // an out-of-bounds index must fail before the source is swapped out.
+        let still_frame = match settings.format {
+            ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
+                // `frame_index` is a LOGICAL index (deleted frames excluded),
+                // the same space the GIF/video paths map through
+                // logical_to_source.
+                let logical = settings.frame_index.unwrap_or(0);
+                let src = self.logical_to_source(logical).ok_or_else(|| {
+                    AppError::Export(format!(
+                        "frame index {logical} out of bounds (visible={})",
+                        self.visible_frame_count()
+                    ))
+                })?;
+                Some((src, logical))
+            }
+            ExportFormat::Gif | ExportFormat::Mp4 | ExportFormat::WebM => None,
+        };
+
+        let placeholder = ExportingPlaceholder::for_source(self.source.as_ref());
+        let source = std::mem::replace(&mut self.source, Box::new(placeholder));
+        Ok(ExportSnapshot {
+            source,
+            // Cheap since layer pixel buffers are Arc-shared: this clones
+            // scalar fields and Arc pointers, not the decoded pixel data.
+            layers: self.layers.clone(),
+            frame_indices: self.source_indices(),
+            delays: self.visible_delays(),
+            still_frame,
+        })
+    }
+
+    /// Phase 3 of an export: put the real source back — but only while our
+    /// placeholder is still installed.  If a different project or source was
+    /// opened mid-export, the current source is not ours to replace.
+    pub fn restore_source_if_placeholder(&mut self, source: Box<dyn FrameSource>) {
+        if self
+            .source
+            .as_any_mut()
+            .downcast_mut::<ExportingPlaceholder>()
+            .is_some()
+        {
+            self.source = source;
+        }
+    }
+}
+
+/// Write a throwaway PNG with fast compression settings.
+///
+/// Temp frames live only long enough for WebKitGTK (or ffmpeg) to read them
+/// back, so encode speed matters and file size does not — the default
+/// adaptive-filter zlib encode dominates per-frame latency on the scrub and
+/// preview paths.  Also used by the video export path for its ffmpeg input
+/// frames (single definition of the fast-PNG encoder setup).
+pub(crate) fn save_temp_png(img: &RgbaImage, path: &Path) -> Result<(), AppError> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+
+    let file = std::fs::File::create(path).map_err(|e| AppError::Export(e.to_string()))?;
+    let encoder = PngEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        CompressionType::Fast,
+        FilterType::NoFilter,
+    );
+    img.write_with_encoder(encoder)
+        .map_err(|e| AppError::Export(e.to_string()))
 }

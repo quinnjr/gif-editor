@@ -106,6 +106,18 @@ fn delete_all_frames_rejected() {
 }
 
 #[test]
+fn delete_frames_with_duplicate_indices_not_spuriously_rejected() {
+    let mut project = open_test_gif();
+    let total = project.visible_frame_count();
+    assert!(total >= 3);
+    // Duplicated logical index 0: naive counting would see 3 deletions of a
+    // 3-frame GIF and reject, but only 2 distinct frames are being deleted.
+    let meta = project.delete_frames(&[0, 0, 1]).unwrap();
+    assert_eq!(meta.frame_count, total - 2);
+    assert_eq!(project.excluded_frames.len(), 2);
+}
+
+#[test]
 fn restore_frames_brings_back_excluded() {
     let mut project = open_test_gif();
     let total = project.source.frame_count();
@@ -354,10 +366,10 @@ fn update_image_layer_all_fields() {
         font_family: Some("ignored".to_string()),
         font_size: Some(99.0),
         color: Some([1, 2, 3, 4]),
-        stroke: Some(Stroke {
+        stroke: Some(Some(Stroke {
             color: [5, 6, 7, 8],
             width: 10.0,
-        }),
+        })),
         text_align: None,
         max_width: None,
         keyframes: Some(vec![Keyframe {
@@ -415,9 +427,9 @@ fn update_text_layer_all_fields() {
         font_family: Some("Helvetica".to_string()),
         font_size: Some(36.0),
         color: Some([128, 64, 32, 200]),
-        stroke: Some(new_stroke),
+        stroke: Some(Some(new_stroke)),
         text_align: Some("left".to_string()),
-        max_width: Some(200.0),
+        max_width: Some(Some(200.0)),
         keyframes: Some(vec![
             Keyframe {
                 frame: 0,
@@ -452,6 +464,69 @@ fn update_text_layer_all_fields() {
     assert_eq!(info.color, Some([128, 64, 32, 200]));
     assert!(info.stroke.is_some());
     assert_eq!(info.keyframes.len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// update_layer — clearing nullable fields (double-Option pattern)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn update_text_layer_explicit_null_clears_max_width_and_stroke() {
+    let mut project = open_test_gif();
+    project.add_text_layer("clearable".to_string(), None, None, None, None);
+    let layer_id = project.layers[0].id();
+
+    // Establish non-default values first.
+    let set = LayerUpdate {
+        max_width: Some(Some(150.0)),
+        stroke: Some(Some(Stroke {
+            color: [1, 2, 3, 255],
+            width: 2.0,
+        })),
+        ..Default::default()
+    };
+    let info = project.update_layer(layer_id, set).unwrap();
+    assert_eq!(info.max_width, Some(150.0));
+    assert!(info.stroke.is_some());
+
+    // The frontend sends explicit nulls to clear both fields.
+    let clear: LayerUpdate =
+        serde_json::from_str(r#"{"max_width": null, "stroke": null}"#).unwrap();
+    assert_eq!(clear.max_width, Some(None));
+    assert!(matches!(clear.stroke, Some(None)));
+
+    let info = project.update_layer(layer_id, clear).unwrap();
+    assert_eq!(info.max_width, None);
+    assert!(info.stroke.is_none());
+}
+
+#[test]
+fn update_text_layer_absent_fields_leave_max_width_and_stroke_unchanged() {
+    let mut project = open_test_gif();
+    project.add_text_layer("keep".to_string(), None, None, None, None);
+    let layer_id = project.layers[0].id();
+
+    let set = LayerUpdate {
+        max_width: Some(Some(99.0)),
+        stroke: Some(Some(Stroke {
+            color: [9, 8, 7, 255],
+            width: 3.0,
+        })),
+        ..Default::default()
+    };
+    project.update_layer(layer_id, set).unwrap();
+
+    // A payload that omits both fields must not touch them.
+    let unrelated: LayerUpdate = serde_json::from_str(r#"{"opacity": 0.5}"#).unwrap();
+    assert_eq!(unrelated.max_width, None);
+    assert!(unrelated.stroke.is_none());
+
+    let info = project.update_layer(layer_id, unrelated).unwrap();
+    assert_eq!(info.opacity, 0.5);
+    assert_eq!(info.max_width, Some(99.0));
+    let stroke = info.stroke.expect("stroke should be unchanged");
+    assert_eq!(stroke.color, [9, 8, 7, 255]);
+    assert_eq!(stroke.width, 3.0);
 }
 
 #[test]
@@ -709,4 +784,32 @@ fn duplicate_layer_inserts_above_source() {
     assert_eq!(project.layers.len(), 2);
     // Duplicate is inserted after source (on top in rendering stack)
     assert_eq!(project.layers[0].id(), layer.id);
+}
+
+// ---------------------------------------------------------------------------
+// source_indices
+// ---------------------------------------------------------------------------
+
+#[test]
+fn source_indices_matches_per_index_mapping() {
+    let mut project = open_test_gif();
+    let expected_mapping = |p: &Project| -> Vec<usize> {
+        (0..p.visible_frame_count())
+            .filter_map(|li| p.logical_to_source(li))
+            .collect()
+    };
+
+    // No exclusions: identity mapping over all frames.
+    assert_eq!(project.source_indices(), expected_mapping(&project));
+    assert_eq!(
+        project.source_indices().len(),
+        project.visible_frame_count()
+    );
+
+    // With exclusions: still equal to the per-index logical_to_source scan.
+    project.delete_frames(&[1]).unwrap();
+    let indices = project.source_indices();
+    assert_eq!(indices, expected_mapping(&project));
+    assert_eq!(indices.len(), project.visible_frame_count());
+    assert!(!indices.contains(&1));
 }
