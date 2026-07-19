@@ -112,28 +112,28 @@
   }
 </script>
 
-<div class="border-b border-zinc-700 px-3 py-2 cursor-pointer {selected ? 'bg-zinc-600' : 'hover:bg-zinc-700'}"
+<div class="border-b border-line border-l-2 px-3 py-2 cursor-pointer {selected ? 'border-l-lamp bg-raise' : 'border-l-transparent hover:bg-raise/60'}"
   onclick={onselect} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && onselect()}>
   <div class="flex items-center gap-2">
     <button onclick={(e) => { e.stopPropagation(); toggleVisibility(); }}
-      class="text-sm {layer.visible ? 'text-white' : 'text-zinc-500'}"
+      class="text-sm {layer.visible ? 'text-ink' : 'text-dim/60'}"
       title={layer.visible ? 'Hide layer' : 'Show layer'}>
       {layer.visible ? '👁' : '—'}
     </button>
     <span class="flex-1 truncate text-sm">{layer.name}</span>
-    <span class="text-xs text-zinc-400">{layer.layer_type}</span>
+    <span class="text-xs text-dim">{layer.layer_type}</span>
     <button onclick={(e) => { e.stopPropagation(); onmoveup?.(); }}
       disabled={!canMoveUp}
-      class="text-xs text-zinc-400 hover:text-blue-400 disabled:cursor-default disabled:opacity-30 disabled:hover:text-zinc-400"
+      class="text-xs text-dim hover:text-lamp disabled:cursor-default disabled:opacity-30 disabled:hover:text-dim"
       title="Move layer up">▲</button>
     <button onclick={(e) => { e.stopPropagation(); onmovedown?.(); }}
       disabled={!canMoveDown}
-      class="text-xs text-zinc-400 hover:text-blue-400 disabled:cursor-default disabled:opacity-30 disabled:hover:text-zinc-400"
+      class="text-xs text-dim hover:text-lamp disabled:cursor-default disabled:opacity-30 disabled:hover:text-dim"
       title="Move layer down">▼</button>
     <button onclick={(e) => { e.stopPropagation(); project.duplicateLayer(layer.id).catch((err) => ui.showError(`Failed to duplicate layer: ${err}`)); }}
-      class="text-xs text-zinc-400 hover:text-blue-400" title="Duplicate layer">⧉</button>
+      class="text-xs text-dim hover:text-lamp" title="Duplicate layer">⧉</button>
     <button onclick={(e) => { e.stopPropagation(); handleRemove(); }}
-      class="text-xs text-zinc-400 hover:text-red-400" title="Remove layer">✕</button>
+      class="text-xs text-dim hover:text-red-400" title="Remove layer">✕</button>
   </div>
 
   {#if selected}
@@ -141,32 +141,32 @@
       ? interpolateKeyframes(layer.keyframes, ui.currentFrame)
       : null}
     <div class="mt-2 space-y-2">
-      <label class="flex items-center gap-2 text-xs text-zinc-300">
+      <label class="flex items-center gap-2 text-xs text-dim">
         Opacity
         <input type="range" min="0" max="1" step="0.05" value={interp ? interp.opacity : layer.opacity}
-          oninput={handleOpacityInput} onchange={handleOpacityChange} class="flex-1 accent-blue-500" />
+          oninput={handleOpacityInput} onchange={handleOpacityChange} class="flex-1 accent-lamp" />
         <span class="w-8 text-right">{Math.round((interp ? interp.opacity : layer.opacity) * 100)}%</span>
       </label>
-      <div class="text-xs text-zinc-400">
+      <div class="text-xs text-dim">
         Frames: {layer.frame_range[0]} – {layer.frame_range[1]}
       </div>
-      <div class="text-xs text-zinc-400">
+      <div class="text-xs text-dim">
         Position: ({Math.round(layer.position[0])}, {Math.round(layer.position[1])})
       </div>
       {#if layer.layer_type !== 'flare'}
         <div class="flex gap-1">
           <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'horizontal').catch((err) => ui.showError(`Failed to flip layer: ${err}`)); }}
-            class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
+            class="rounded bg-raise px-2 py-0.5 text-xs text-ink hover:bg-line">
             Flip H
           </button>
           <button onclick={(e) => { e.stopPropagation(); project.flipLayer(layer.id, 'vertical').catch((err) => ui.showError(`Failed to flip layer: ${err}`)); }}
-            class="rounded bg-zinc-600 px-2 py-0.5 text-xs text-white hover:bg-zinc-500">
+            class="rounded bg-raise px-2 py-0.5 text-xs text-ink hover:bg-line">
             Flip V
           </button>
         </div>
       {/if}
       {#if layer.layer_type !== 'flare'}
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Rotation
           <input type="number" step="1" value={layer.rotation}
             onchange={async (e) => {
@@ -177,48 +177,48 @@
                 ui.showError(`Failed to update rotation: ${err}`);
               }
             }}
-            class="w-16 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white" />
+            class="w-16 rounded bg-raise px-1 py-0.5 text-xs text-ink" />
           °
           <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: (layer.rotation + 90) % 360 }).catch((err) => ui.showError(`Failed to update rotation: ${err}`)); }}
-            class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">+90</button>
+            class="rounded bg-raise px-1.5 py-0.5 text-xs text-ink hover:bg-line">+90</button>
           <button onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { rotation: ((layer.rotation - 90) + 360) % 360 }).catch((err) => ui.showError(`Failed to update rotation: ${err}`)); }}
-            class="rounded bg-zinc-600 px-1.5 py-0.5 text-xs text-white hover:bg-zinc-500">-90</button>
+            class="rounded bg-raise px-1.5 py-0.5 text-xs text-ink hover:bg-line">-90</button>
         </label>
       {/if}
       {#if layer.layer_type === 'flare'}
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Intensity
           <input type="range" min="0" max="2" step="0.05"
             value={layer.intensity ?? 1}
             oninput={handleSliderInput('intensity')}
             onchange={handleSliderChange('intensity')}
             onpointerdown={(e) => e.stopPropagation()}
-            class="flex-1 accent-orange-500" />
+            class="flex-1 accent-flare" />
           <span class="w-10 text-right">{(layer.intensity ?? 1).toFixed(2)}</span>
         </label>
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Scale
           <input type="range" min="0.25" max="4" step="0.05"
             value={layer.scale ?? 1}
             oninput={handleSliderInput('scale')}
             onchange={handleSliderChange('scale')}
             onpointerdown={(e) => e.stopPropagation()}
-            class="flex-1 accent-orange-500" />
+            class="flex-1 accent-flare" />
           <span class="w-10 text-right">{(layer.scale ?? 1).toFixed(2)}</span>
         </label>
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Pulse
           <input type="range" min="0.05" max="0.5" step="0.01"
             value={layer.pulse_speed ?? 0.15}
             oninput={handleSliderInput('pulse_speed')}
             onchange={handleSliderChange('pulse_speed')}
             onpointerdown={(e) => e.stopPropagation()}
-            class="flex-1 accent-orange-500" />
+            class="flex-1 accent-flare" />
           <span class="w-10 text-right">{(layer.pulse_speed ?? 0.15).toFixed(2)}</span>
         </label>
       {/if}
       {#if layer.layer_type === 'text'}
-        <label class="flex flex-col gap-1 text-xs text-zinc-300">
+        <label class="flex flex-col gap-1 text-xs text-dim">
           Text
           <textarea
             value={layer.text ?? ''}
@@ -231,9 +231,9 @@
               }
             }}
             onclick={(e) => e.stopPropagation()}
-            class="w-full rounded bg-zinc-700 px-1 py-0.5 text-xs text-white resize-none"></textarea>
+            class="w-full rounded bg-raise px-1 py-0.5 text-xs text-ink resize-none"></textarea>
         </label>
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Font
           <select
             value={currentFont}
@@ -245,7 +245,7 @@
                 ui.showError(`Failed to update font: ${err}`);
               }
             }}
-            class="flex-1 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white">
+            class="flex-1 rounded bg-raise px-1 py-0.5 text-xs text-ink">
             {#if !fonts.includes(currentFont)}
               <option value={currentFont}>{currentFont}</option>
             {/if}
@@ -255,16 +255,16 @@
           </select>
         </label>
         <div class="flex items-center gap-1 text-xs">
-          <span class="text-zinc-400">Align</span>
+          <span class="text-dim">Align</span>
           {#each ['left', 'center', 'right'] as align (align)}
             <button
               onclick={(e) => { e.stopPropagation(); project.updateLayer(layer.id, { text_align: align }).catch((err) => ui.showError(`Failed to update alignment: ${err}`)); }}
-              class="rounded px-1.5 py-0.5 text-xs {layer.text_align === align ? 'bg-blue-600 text-white' : 'bg-zinc-600 text-zinc-300 hover:bg-zinc-500'}">
+              class="rounded px-1.5 py-0.5 text-xs {layer.text_align === align ? 'bg-lamp/15 text-lamp' : 'bg-raise text-dim hover:bg-line'}">
               {align[0].toUpperCase()}
             </button>
           {/each}
         </div>
-        <label class="flex items-center gap-2 text-xs text-zinc-300">
+        <label class="flex items-center gap-2 text-xs text-dim">
           Max width
           <input type="number" min="0" step="10"
             value={layer.max_width ?? ''}
@@ -277,7 +277,7 @@
                 ui.showError(`Failed to update max width: ${err}`);
               }
             }}
-            class="w-20 rounded bg-zinc-700 px-1 py-0.5 text-xs text-white" />
+            class="w-20 rounded bg-raise px-1 py-0.5 text-xs text-ink" />
           px
         </label>
       {/if}

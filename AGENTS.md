@@ -94,7 +94,7 @@ src/tests/            Frontend unit tests (Vitest + jsdom)
 ### Frontend
 
 - **Svelte 5 runes only** — `$state`, `$effect`, `$props`, `$derived`. No legacy reactivity.
-- **Tailwind CSS 4** — utility classes, dark theme (zinc palette)
+- **Tailwind CSS 4** — utility classes; design tokens live in `src/app.css` `@theme` (warm film-dark grounds `bed/film/raise/line`, text `ink/dim`, accents `lamp/flare/ghost` taken from the flare renderer's constants, plus `grip/ember` for scrollbars and error surfaces). No raw color literals in components — no `zinc/gray` utilities, no `bg-[#…]`, no inline hex/`rgba(…)`; reference the token utilities or `var(--color-*)`. Raw hex belongs only in the `@theme` block itself.
 - Use `SvelteSet` (from `svelte/reactivity`) instead of `Set` for reactive collections
 - `{@const}` must be direct child of block tags (`{#if}`, `{#each}`), not elements
 - Stores are class-based singletons from `.svelte.ts` files

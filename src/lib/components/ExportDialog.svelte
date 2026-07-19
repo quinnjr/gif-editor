@@ -75,16 +75,16 @@
 
 {#if open}
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-40 bg-black/50" role="presentation" onclick={onclose}></div>
+  <div class="fixed inset-0 z-40 bg-bed/70" role="presentation" onclick={onclose}></div>
 
   <!-- Dialog -->
-  <div class="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-zinc-800 p-6 shadow-xl">
-    <h2 class="mb-4 text-lg font-semibold">Export</h2>
+  <div class="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-line bg-film p-6 shadow-xl">
+    <h2 class="mb-4 font-display text-2xl uppercase leading-none tracking-wide text-ink">Export</h2>
 
     <div class="space-y-4">
       <label class="block text-sm">
         Format
-        <select bind:value={format} class="mt-1 block w-full rounded bg-zinc-700 px-3 py-2 text-sm">
+        <select bind:value={format} class="mt-1 block w-full rounded bg-raise px-3 py-2 text-sm text-ink">
           <option value="Gif">GIF</option>
           <option value="Mp4" disabled={!ui.ffmpegAvailable}>MP4 {!ui.ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
           <option value="WebM" disabled={!ui.ffmpegAvailable}>WebM {!ui.ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
@@ -95,23 +95,23 @@
       </label>
 
       {#if isStill}
-        <p class="text-xs text-zinc-400">Exports frame {ui.currentFrame + 1} as a still image.</p>
+        <p class="text-xs text-dim">Exports frame {ui.currentFrame + 1} as a still image.</p>
       {/if}
 
       {#if showQuality}
         <label class="block text-sm">
           Quality: {quality}
-          <input type="range" min="1" max="100" bind:value={quality} class="mt-1 block w-full accent-blue-500" />
+          <input type="range" min="1" max="100" bind:value={quality} class="mt-1 block w-full accent-lamp" />
         </label>
       {/if}
 
       {#if exporting && !isStill}
         {@const total = project.metadata?.frame_count ?? 1}
         {@const pct = Math.min(100, Math.round((progress / total) * 100))}
-        <div class="h-2 rounded-full bg-zinc-700">
-          <div class="h-full rounded-full bg-blue-500 transition-all" style="width: {pct}%"></div>
+        <div class="h-2 rounded-full bg-raise">
+          <div class="h-full rounded-full bg-flare transition-all motion-reduce:transition-none" style="width: {pct}%"></div>
         </div>
-        <p class="text-center text-xs text-zinc-400">{pct}% &mdash; frame {progress} / {total}</p>
+        <p class="text-center text-xs text-dim">{pct}% &mdash; frame {progress} / {total}</p>
       {/if}
 
       {#if error}
@@ -120,9 +120,9 @@
 
       <div class="flex gap-2">
         <button onclick={onclose} disabled={exporting}
-          class="flex-1 rounded bg-zinc-600 px-3 py-2 text-sm hover:bg-zinc-500 disabled:opacity-40">Cancel</button>
+          class="flex-1 rounded bg-raise px-3 py-2 text-sm text-ink hover:bg-line disabled:opacity-40">Cancel</button>
         <button onclick={handleExport} disabled={exporting}
-          class="flex-1 rounded bg-green-600 px-3 py-2 text-sm font-medium hover:bg-green-500 disabled:opacity-40">
+          class="flex-1 rounded bg-flare px-3 py-2 text-sm font-semibold text-bed hover:brightness-110 disabled:opacity-40">
           {exporting ? 'Exporting...' : 'Export'}
         </button>
       </div>

@@ -3,24 +3,10 @@
   import { project } from '$lib/stores/project.svelte';
   import { ui } from '$lib/stores/ui.svelte';
   import ExportDialog from './ExportDialog.svelte';
+  import { openMediaFile } from '$lib/utils/open-media';
 
   let { onerror }: { onerror: (msg: string) => void } = $props();
   let showExport = $state(false);
-
-  async function handleOpenFile() {
-    const path = await open({
-      filters: [
-        { name: 'Supported Media', extensions: ['gif', 'mp4', 'webm', 'png', 'jpg', 'jpeg', 'webp'] },
-      ],
-    });
-    if (!path) return;
-    try {
-      await project.open(path);
-      ui.setFrame(0);
-    } catch (e) {
-      onerror(`Failed to open file: ${e}`);
-    }
-  }
 
   async function handleAddImage() {
     const path = await open({
@@ -86,45 +72,50 @@
   }
 </script>
 
-<div class="flex items-center gap-2 border-b border-zinc-700 bg-zinc-800 px-4 py-2">
-  <button onclick={handleOpenFile}
-    class="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500">
-    Open File
+<div class="flex items-center gap-2 border-b border-line bg-film px-4 py-2">
+  <span class="mr-2 select-none font-display text-lg leading-none tracking-wide text-ink" aria-hidden="true">
+    GIF<span class="text-lamp">·</span>EDITOR
+  </span>
+  <button onclick={openMediaFile}
+    class="rounded border border-line bg-raise px-3 py-1.5 text-sm font-medium text-ink hover:border-dim">
+    Open file
   </button>
+  <span class="mx-1 h-5 w-px bg-line" aria-hidden="true"></span>
   <button onclick={handleAddImage} disabled={!project.isOpen}
-    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40">
-    Add Image
+    class="rounded bg-raise px-3 py-1.5 text-sm font-medium text-ink hover:bg-line disabled:opacity-40">
+    Add image
   </button>
   <button onclick={handleAddText} disabled={!project.isOpen}
-    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40">
-    Add Text
+    class="rounded bg-raise px-3 py-1.5 text-sm font-medium text-ink hover:bg-line disabled:opacity-40">
+    Add text
   </button>
   <button onclick={handleMemeText} disabled={!project.isOpen}
-    class="rounded bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:opacity-40">
-    Meme Text
+    class="rounded bg-raise px-3 py-1.5 text-sm font-medium text-ink hover:bg-line disabled:opacity-40">
+    Meme text
   </button>
   <button onclick={handleAddFlare} disabled={!project.isOpen}
-    class="rounded bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-500 disabled:opacity-40">
-    Solar Flare
+    class="rounded bg-raise px-3 py-1.5 text-sm font-medium text-ink hover:bg-line disabled:opacity-40">
+    <span class="text-lamp" aria-hidden="true">✳</span> Solar flare
   </button>
+  <span class="mx-1 h-5 w-px bg-line" aria-hidden="true"></span>
   <button onclick={handleUndo} disabled={!project.isOpen}
-    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"
+    class="rounded bg-raise px-2.5 py-1.5 text-sm text-dim hover:bg-line hover:text-ink disabled:opacity-40"
     title="Undo (Ctrl+Z)">
-    ↩ Undo
+    ↩
   </button>
   <button onclick={handleRedo} disabled={!project.isOpen}
-    class="rounded bg-zinc-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-500 disabled:opacity-40"
+    class="rounded bg-raise px-2.5 py-1.5 text-sm text-dim hover:bg-line hover:text-ink disabled:opacity-40"
     title="Redo (Ctrl+Y)">
-    ↪ Redo
+    ↪
   </button>
   <div class="flex-1"></div>
-  <label class="flex items-center gap-1.5 text-sm text-zinc-300">
+  <label class="flex items-center gap-1.5 text-sm text-dim">
     <input type="checkbox" checked={ui.previewExport} onchange={() => ui.togglePreviewExport()}
-      disabled={!project.isOpen} class="accent-blue-500" />
-    Preview Export
+      disabled={!project.isOpen} class="accent-lamp" />
+    Preview export
   </label>
   <button onclick={() => (showExport = true)} disabled={!project.isOpen}
-    class="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-40">
+    class="rounded bg-flare px-4 py-1.5 text-sm font-semibold text-bed hover:brightness-110 disabled:opacity-40">
     Export
   </button>
 </div>

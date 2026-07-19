@@ -303,16 +303,16 @@
 </script>
 
 {#if !project.metadata}
-  <div class="flex h-full items-center justify-center text-sm text-zinc-400">
-    Open a GIF to see the timeline
+  <div class="flex h-full items-center justify-center text-sm text-dim">
+    Frames appear here once a file is open.
   </div>
 {:else}
   <div class="flex h-full flex-col" role="toolbar" onkeydown={handleKeydown} tabindex="-1">
     <!-- Controls row -->
-    <div class="flex items-center gap-3 border-b border-zinc-700 px-3 py-1 text-sm">
+    <div class="flex items-center gap-3 border-b border-line px-3 py-1 text-sm">
       <button
         onclick={stepBackward}
-        class="rounded px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40"
+        class="rounded px-1.5 py-0.5 text-dim hover:bg-raise hover:text-ink disabled:opacity-40"
         title="Previous frame"
         disabled={ui.isPlaying}
       >
@@ -321,7 +321,7 @@
 
       <button
         onclick={() => ui.togglePlayback()}
-        class="rounded px-1.5 py-0.5 hover:bg-zinc-700"
+        class="rounded px-1.5 py-0.5 text-ink hover:bg-raise"
         title={ui.isPlaying ? 'Pause' : 'Play'}
       >
         {#if ui.isPlaying}
@@ -333,25 +333,25 @@
 
       <button
         onclick={stepForward}
-        class="rounded px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40"
+        class="rounded px-1.5 py-0.5 text-dim hover:bg-raise hover:text-ink disabled:opacity-40"
         title="Next frame"
         disabled={ui.isPlaying}
       >
         &#9654;&#9654;
       </button>
 
-      <span class="text-zinc-400">
-        {ui.currentFrame + 1}&nbsp;/&nbsp;{project.metadata.frame_count}
+      <span class="font-data text-xs tabular-nums text-dim">
+        <span class="text-ink">{ui.currentFrame + 1}</span>&nbsp;/&nbsp;{project.metadata.frame_count}
       </span>
 
       <div class="flex-1"></div>
 
-      <label class="flex items-center gap-1 text-zinc-300">
+      <label class="flex items-center gap-1 text-dim">
         Speed
         <select
           value={ui.playbackSpeed}
           onchange={(e) => ui.setPlaybackSpeed(parseFloat((e.target as HTMLSelectElement).value))}
-          class="rounded bg-zinc-700 px-1 py-0.5 text-xs text-white"
+          class="rounded bg-raise px-1 py-0.5 font-data text-xs text-ink"
         >
           <option value={0.25}>0.25x</option>
           <option value={0.5}>0.5x</option>
@@ -361,19 +361,19 @@
       </label>
       {#if selectedFrames.size > 0}
         <button onclick={handleDeleteSelected}
-          class="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-500"
+          class="rounded bg-red-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-600"
           title="Delete selected frames">
           Delete ({selectedFrames.size})
         </button>
         <button onclick={handleKeepSelected}
-          class="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500"
+          class="rounded bg-ghost px-2 py-0.5 text-xs font-medium text-white hover:brightness-110"
           title="Keep only selected frames">
           Keep ({selectedFrames.size})
         </button>
       {/if}
       {#if project.excludedFrames.length > 0}
         <button onclick={handleRestoreAll}
-          class="rounded bg-zinc-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-zinc-500"
+          class="rounded bg-raise px-2 py-0.5 text-xs font-medium text-ink hover:bg-line"
           title="Restore all deleted frames">
           Restore ({project.excludedFrames.length})
         </button>
@@ -385,8 +385,8 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         bind:this={stripEl}
-        class="flex h-full items-center gap-0.5 overflow-x-auto px-1"
-        style="scrollbar-width: thin; scrollbar-color: #52525b transparent; cursor: {isPanning ? 'grabbing' : 'grab'};"
+        class="film-sprockets flex h-full items-center gap-0.5 overflow-x-auto bg-raise px-2"
+        style="scrollbar-width: thin; scrollbar-color: var(--color-grip) transparent; cursor: {isPanning ? 'grabbing' : 'grab'};"
         onpointerdown={onStripPointerDown}
         onpointermove={onStripPointerMove}
         onpointerup={onStripPointerUp}
@@ -395,8 +395,12 @@
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="relative h-12 w-16 shrink-0 overflow-hidden rounded border-2
-              {i === ui.currentFrame ? 'border-blue-400' : selectedFrames.has(i) ? 'border-amber-400' : 'border-zinc-600'}"
+            class="relative h-12 w-16 shrink-0 overflow-hidden rounded-sm border
+              {i === ui.currentFrame
+                ? 'border-lamp shadow-[0_0_10px_var(--color-lamp-glow)]'
+                : selectedFrames.has(i)
+                  ? 'border-ghost'
+                  : 'border-line'}"
             data-frame-index={i}
             onclick={(e) => { if (e.ctrlKey || e.metaKey || e.shiftKey) toggleFrameSelection(i, e); }}
             oncontextmenu={(e) => handleThumbnailContextMenu(i, e)}
@@ -404,16 +408,16 @@
             {#if src}
               <img {src} alt="Frame {i + 1}" class="h-full w-full object-cover" draggable="false" />
             {:else}
-              <div class="h-full w-full bg-zinc-700"></div>
+              <div class="h-full w-full bg-film"></div>
             {/if}
             {#if selectedFrames.has(i)}
-              <div class="absolute inset-0 bg-amber-400/20"></div>
+              <div class="absolute inset-0 bg-ghost/25"></div>
             {/if}
             {#if selectedLayer && selectedLayer.keyframes.some((kf) => kf.frame === i)}
-              <div class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-yellow-400"
+              <div class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-lamp"
                 title="Keyframe">&#9670;</div>
             {/if}
-            <span class="absolute bottom-0 left-0 right-0 bg-black/50 text-center text-[9px] leading-3 text-zinc-300">
+            <span class="absolute bottom-0 left-0 right-0 bg-bed/60 text-center font-data text-[9px] leading-3 tabular-nums text-dim">
               {i + 1}
             </span>
           </div>
@@ -442,14 +446,14 @@
           ></div>
           <!-- Range bar outline -->
           <div
-            class="absolute inset-y-1 border-2 border-blue-500/70 bg-blue-500/10"
+            class="absolute inset-y-1 border-2 border-ghost/70 bg-ghost/10"
             style="left: {startPct}%; width: {endPct - startPct}%"
           ></div>
         </div>
 
         <!-- Drag handles (pointer-events enabled) -->
         <div
-          class="absolute inset-y-0 w-2 cursor-ew-resize bg-blue-500 opacity-80 hover:opacity-100"
+          class="absolute inset-y-0 w-2 cursor-ew-resize bg-ghost opacity-80 hover:opacity-100"
           style="left: calc({startPct}% - 4px)"
           onpointerdown={(e) => onDragStart('start', e)}
           onpointermove={onDragMove}
@@ -462,7 +466,7 @@
           tabindex="0"
         ></div>
         <div
-          class="absolute inset-y-0 w-2 cursor-ew-resize bg-blue-500 opacity-80 hover:opacity-100"
+          class="absolute inset-y-0 w-2 cursor-ew-resize bg-ghost opacity-80 hover:opacity-100"
           style="left: calc({endPct}% - 4px)"
           onpointerdown={(e) => onDragStart('end', e)}
           onpointermove={onDragMove}

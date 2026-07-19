@@ -3,6 +3,7 @@
   import { ui } from '$lib/stores/ui.svelte';
   import { renderFrame, interpolateKeyframes, onFontsReady } from '$lib/utils/canvas-renderer';
   import { convertFileSrc } from '@tauri-apps/api/core';
+  import { openMediaFile } from '$lib/utils/open-media';
   import * as cmd from '$lib/commands';
   import type { LayerInfo, Keyframe } from '$lib/types';
 
@@ -518,13 +519,13 @@
           viewBox="0 0 {rect.width} {rect.height}">
           <polygon
             points="{[corners[0], corners[1], corners[3], corners[2]].map(([cx, cy]) => `${cx * ratioX},${cy * ratioY}`).join(' ')}"
-            fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 2" />
+            fill="none" stroke="var(--color-ghost)" stroke-width="1" stroke-dasharray="4 2" />
           {#each handles as h (h.type)}
             <rect
               x={h.x * ratioX - HANDLE_SIZE / 2}
               y={h.y * ratioY - HANDLE_SIZE / 2}
               width={HANDLE_SIZE} height={HANDLE_SIZE}
-              fill="#60a5fa" stroke="#1e3a5f" stroke-width="1"
+              fill="var(--color-lamp)" stroke="var(--color-bed)" stroke-width="1"
               class="pointer-events-auto cursor-pointer" />
           {/each}
         </svg>
@@ -532,5 +533,16 @@
     {/if}
   </div>
 {:else}
-  <p class="text-zinc-500">Open a GIF to get started</p>
+  <div class="flex select-none flex-col items-center gap-4 text-center">
+    <h1 class="font-display text-6xl uppercase leading-none tracking-wide text-ink">
+      Make a <span class="text-lamp">GIF</span>
+    </h1>
+    <p class="max-w-sm text-sm text-dim">
+      Open a GIF, video, or image, then layer on text, images, and flares.
+    </p>
+    <button onclick={openMediaFile}
+      class="rounded bg-flare px-5 py-2 text-sm font-semibold text-bed hover:brightness-110">
+      Open file
+    </button>
+  </div>
 {/if}
