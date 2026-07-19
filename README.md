@@ -17,7 +17,7 @@ Built with [Tauri v2](https://tauri.app/) (Rust backend) and [Svelte 5](https://
 - **Meme-ready text** — bundled Impact-style font (Anton), word wrap, alignment, configurable size, color, and stroke outline
 - **Solar flare layers** — procedural lens flares with intensity, scale, and pulse animation, composited additively
 - **Export to GIF, MP4, WebM, or stills (PNG/JPEG/WebP)** — GIF uses imagequant quantization; video uses ffmpeg with audio preservation
-- **Dark mode** — native dark theme for all UI elements including dropdown menus
+- **Light-table UI** — warm film-dark theme with accents drawn from the app's own lens-flare palette; the timeline renders as a sprocketed filmstrip with a lamp-lit current-frame marker
 
 ## Prerequisites
 

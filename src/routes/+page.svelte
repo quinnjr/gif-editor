@@ -52,22 +52,22 @@
 
 <svelte:window onkeydown={handleKeyDown} />
 
-<div class="flex h-screen flex-col bg-zinc-900 text-white">
+<div class="flex h-screen flex-col bg-film text-ink">
   <Toolbar onerror={showError} />
 
   <div class="flex flex-1 overflow-hidden">
-    <!-- Canvas area -->
-    <div class="flex-1 flex items-center justify-center bg-zinc-950 overflow-hidden p-4">
+    <!-- Canvas area: the light table bed -->
+    <div class="flex-1 flex items-center justify-center bg-bed overflow-hidden p-4">
       <Canvas />
     </div>
     <!-- Layer panel -->
-    <div class="w-64 border-l border-zinc-700 bg-zinc-800">
+    <div class="w-64 border-l border-line bg-film">
       <LayerPanel />
     </div>
   </div>
 
   <!-- Timeline -->
-  <div class="h-24 border-t border-zinc-700 bg-zinc-800">
+  <div class="h-24 border-t border-line bg-film">
     <Timeline />
   </div>
 </div>

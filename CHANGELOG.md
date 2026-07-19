@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Retheme: warm film-dark "light table" UI built on `@theme` design tokens, with accents taken from the app's own lens-flare palette; the timeline renders as a sprocketed filmstrip with a lamp-lit current-frame marker, and the empty state gains its own Open action
 - Performance: text layers rasterize once per content change instead of once per frame (LRU render caches on both the export and preview paths); bundled fonts parse once per process; flare rendering allocates only the lit bounding region; video export streams all frames from a single ffmpeg process instead of one seek+decode process per frame; temp preview/export PNGs use fast compression
 - Memory: layer pixel buffers are Arc-shared, so undo/redo snapshots and layer duplication copy pointers instead of pixel data; the preview's decoded-frame cache is bounded (LRU)
 - Export no longer holds the project state lock for its duration — layer edits and undo/redo keep working while an export encodes; fetching an uncached frame during export reports "export in progress"

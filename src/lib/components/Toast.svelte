@@ -25,8 +25,10 @@
 
 {#if visible}
   <div
-    class="fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm font-medium shadow-lg
-           {type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'}"
+    class="fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg
+           {type === 'error'
+             ? 'border-red-500/40 bg-ember text-ink'
+             : 'border-lamp/40 bg-raise text-ink'}"
   >
     {message}
   </div>

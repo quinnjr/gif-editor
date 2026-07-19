@@ -21,10 +21,10 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="border-b border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-300">Layers</div>
+  <div class="border-b border-line px-3 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-dim">Layers</div>
   <div class="flex-1 overflow-y-auto">
     {#if project.layers.length === 0}
-      <p class="p-4 text-xs text-zinc-500">No layers yet. Add an image or text overlay.</p>
+      <p class="p-4 text-xs text-dim">No layers yet. Add an image, text, or a flare from the toolbar.</p>
     {:else}
       {#each [...project.layers].reverse() as layer, i (layer.id)}
         <LayerItem {layer} selected={ui.selectedLayerId === layer.id}

@@ -5,11 +5,58 @@
    preview fetches their bytes over IPC and registers them with the JS
    FontFace API at normal weight (src/lib/utils/canvas-renderer.ts). */
 
+/* Design tokens — "light table" identity.
+   The three accents are the app's own lens-flare constants
+   (src-tauri/src/flare_renderer.rs): core yellow, halo orange, ghost blue.
+   Grounds are warm film-blacks, not neutral gray, so frames on the canvas
+   read like celluloid on a light table. */
+@theme {
+  --color-bed: #0b0a08; /* canvas well / sprocket holes */
+  --color-film: #161310; /* panel surfaces */
+  --color-raise: #221e18; /* raised controls */
+  --color-line: #2a241c; /* hairline borders */
+  --color-ink: #ede6d8; /* primary text */
+  --color-dim: #8f877a; /* secondary text */
+  --color-lamp: #ffe87c; /* flare core — playhead, keyframes, focus */
+  --color-flare: #ff7b00; /* flare halo — the one primary action */
+  --color-ghost: #4b6eaf; /* flare ghost — selection */
+  --color-grip: #4a4238; /* scrollbar thumbs and grab affordances */
+  --color-ember: #2a1310; /* error surfaces (toast ground) */
+  /* Lamp at 35% for glows; keeps box-shadows tied to the lamp token. */
+  --color-lamp-glow: color-mix(in srgb, var(--color-lamp) 35%, transparent);
+
+  --font-display: Anton, "Arial Narrow", Impact, sans-serif;
+  --font-data: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
 :root {
   color-scheme: dark;
 }
 
+/* One focus treatment everywhere: the lamp. */
+:focus-visible {
+  outline: 2px solid var(--color-lamp);
+  outline-offset: 1px;
+}
+
 option {
-  background-color: #3f3f46; /* zinc-700 */
-  color: #fff;
+  background-color: var(--color-raise);
+  color: var(--color-ink);
+}
+
+/* Sprocket perforations for the timeline filmstrip. Two dotted bands punch
+   through to the bed color; background-attachment: local makes them travel
+   with the film when the strip scrolls. */
+.film-sprockets {
+  background-image:
+    radial-gradient(circle, var(--color-bed) 1.8px, transparent 2.1px),
+    radial-gradient(circle, var(--color-bed) 1.8px, transparent 2.1px);
+  background-size:
+    12px 5px,
+    12px 5px;
+  background-position:
+    2px 2px,
+    2px calc(100% - 7px);
+  background-repeat: repeat-x, repeat-x;
+  background-attachment: local, local;
 }
