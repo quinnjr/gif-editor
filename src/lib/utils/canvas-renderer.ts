@@ -1,16 +1,151 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { getFontData } from '$lib/commands';
 import type { LayerInfo, Keyframe } from '$lib/types';
 
+// Bounded LRU caches.  Maps preserve insertion order, so "least recently
+// used" is the first key: reads re-insert to refresh recency and inserts
+// beyond the cap evict the first entry.
+const IMAGE_CACHE_CAP = 48;
 const imageCache = new Map<string, HTMLImageElement>();
 
+const TEXT_RASTER_CACHE_CAP = 16;
+interface TextRaster {
+  canvas: HTMLCanvasElement;
+  pad: number;
+}
+const textRasterCache = new Map<string, TextRaster>();
+
+function lruGet<K, V>(cache: Map<K, V>, key: K): V | undefined {
+  const value = cache.get(key);
+  if (value !== undefined) {
+    // Re-insert to mark as most recently used.
+    cache.delete(key);
+    cache.set(key, value);
+  }
+  return value;
+}
+
+function lruSet<K, V>(cache: Map<K, V>, key: K, value: V, cap: number): void {
+  cache.delete(key); // refresh recency if already present
+  cache.set(key, value);
+  if (cache.size > cap) {
+    // Evict the least recently used entry (first key in insertion order).
+    cache.delete(cache.keys().next().value as K);
+  }
+}
+
+/** Test hook / project-close hygiene: drop all cached render assets. */
+export function clearRenderCaches(): void {
+  imageCache.clear();
+  textRasterCache.clear();
+}
+
+/**
+ * Map a layer font family to the bundled typeface actually used for
+ * rasterisation, mirroring the backend substitution in
+ * src-tauri/src/fonts.rs (impact|anton → Anton, everything else →
+ * Liberation Sans, served by LiberationSans-Bold.ttf) so preview and
+ * export draw the same glyphs.
+ */
+export function resolveFontFamily(family?: string | null): string {
+  const f = (family ?? 'Impact').toLowerCase();
+  // The Liberation Sans fallback also absorbs the legacy "Liberation Sans
+  // Bold" label stored by projects saved before the family was renamed.
+  return f === 'impact' || f === 'anton' ? 'Anton' : 'Liberation Sans';
+}
+
+function base64ToArrayBuffer(b64: string): ArrayBuffer {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// Callbacks registered by consumers (Canvas.svelte) that want to repaint
+// once a bundled FontFace finishes loading: any text raster produced before
+// then was drawn with a fallback font and has just been evicted from the
+// cache, so a re-render picks up the real typeface.
+const fontsReadyCallbacks = new Set<() => void>();
+
+/**
+ * Register a callback invoked each time a bundled font finishes loading
+ * (after the stale text rasters have been dropped). Returns an unsubscribe
+ * function suitable for use as an $effect cleanup.
+ */
+export function onFontsReady(cb: () => void): () => void {
+  fontsReadyCallbacks.add(cb);
+  return () => fontsReadyCallbacks.delete(cb);
+}
+
+// Kick off loading of the bundled fonts at module init so canvas text is
+// rasterised with them; the very first paint may fall back until loaded.
+// The TTFs ship only inside the Rust binary (src-tauri/src/fonts.rs): the
+// bytes are fetched over IPC (get_font_data) and registered via the JS
+// FontFace API — there is no static/fonts copy and no CSS @font-face.
+// Guarded so importing this module never throws in environments without
+// the CSS Font Loading API or a Tauri backend (e.g. jsdom under vitest,
+// where the invoke mock exists but FontFace does not).
+if (
+  typeof document !== 'undefined' &&
+  'fonts' in document &&
+  typeof FontFace !== 'undefined'
+) {
+  for (const family of ['Anton', 'Liberation Sans']) {
+    try {
+      getFontData(family)
+        .then(async (b64) => {
+          // A rejected/undefined IPC response lands in the catch below.
+          const face = new FontFace(family, base64ToArrayBuffer(b64));
+          await face.load();
+          document.fonts.add(face);
+          // Any text raster produced before this point was drawn with a
+          // fallback font: drop them (image cache is unaffected) and let
+          // registered consumers trigger a repaint.
+          textRasterCache.clear();
+          for (const cb of fontsReadyCallbacks) cb();
+        })
+        .catch((err) => {
+          // First-paint fallback is acceptable; no toast, but leave a trace.
+          console.warn(`Failed to load bundled font "${family}":`, err);
+        });
+    } catch (err) {
+      // No Tauri IPC bridge (e.g. plain-browser dev or test runs).
+      console.warn(`Failed to request bundled font "${family}":`, err);
+    }
+  }
+}
+
 async function loadImage(src: string): Promise<HTMLImageElement> {
-  if (imageCache.has(src)) return imageCache.get(src)!;
+  const cached = lruGet(imageCache, src);
+  if (cached) return cached;
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => { imageCache.set(src, img); resolve(img); };
+    img.onload = () => {
+      lruSet(imageCache, src, img, IMAGE_CACHE_CAP);
+      resolve(img);
+    };
     img.onerror = reject;
     img.src = src;
   });
+}
+
+/**
+ * Cache key covering every field that affects the rasterised text image.
+ * The layer id is deliberately excluded so identical text layers share a
+ * single raster.
+ *
+ * Keep in sync with RenderCacheKey in src-tauri/src/text_renderer.rs.
+ */
+function textRasterKey(layer: LayerInfo): string {
+  return JSON.stringify([
+    layer.text ?? '',
+    layer.font_family ?? null,
+    layer.font_size ?? null,
+    layer.color ?? null,
+    layer.stroke ? [layer.stroke.width, layer.stroke.color] : null,
+    layer.text_align ?? null,
+    layer.max_width ?? null,
+  ]);
 }
 
 export function wrapText(
@@ -116,34 +251,62 @@ export async function renderFrame(
       const img = await loadImage(convertFileSrc(layer.source_path));
       ctx.drawImage(img, 0, 0);
     } else if (layer.layer_type === 'text') {
-      const fontSize = layer.font_size ?? 48;
-      const align = (layer.text_align ?? 'center') as CanvasTextAlign;
-      ctx.font = `${fontSize}px "${layer.font_family ?? 'Anton'}", sans-serif`;
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'left'; // we compute x manually
+      // Rasterising text is expensive (layout + stroke + fill on a fresh
+      // offscreen canvas), so finished rasters are cached by content: on a
+      // hit we skip layout entirely and just composite the cached image.
+      const rasterKey = textRasterKey(layer);
+      let raster = lruGet(textRasterCache, rasterKey);
+      if (!raster) {
+        const fontSize = layer.font_size ?? 48;
+        const align = (layer.text_align ?? 'center') as CanvasTextAlign;
+        const font = `${fontSize}px "${resolveFontFamily(layer.font_family)}", sans-serif`;
+        ctx.font = font; // used for measurement below
 
-      const text = layer.text ?? '';
-      const lineHeight = fontSize * 1.2;
-      const lines = layer.max_width ? wrapText(ctx, text, layer.max_width) : [text];
-      const maxW = layer.max_width ?? ctx.measureText(text).width;
+        const text = layer.text ?? '';
+        const lineHeight = fontSize * 1.2;
+        const lines = layer.max_width ? wrapText(ctx, text, layer.max_width) : [text];
+        const maxW = layer.max_width ?? ctx.measureText(text).width;
 
-      lines.forEach((line, i) => {
-        const lineW = ctx.measureText(line).width;
-        let x = 0;
-        if (align === 'center') x = (maxW - lineW) / 2;
-        else if (align === 'right') x = maxW - lineW;
-        const y = i * lineHeight;
+        // Rasterise stroke + fill at FULL alpha into an offscreen canvas and
+        // composite it once at the layer opacity.  This matches the backend's
+        // flattening: a translucent layer's stroke must not bleed through its
+        // fill.  `pad` mirrors the backend's stroke_pad so stroke overflow is
+        // not clipped; the offscreen image is drawn at (-pad, -pad) so the
+        // glyph box origin stays on the transform origin.
+        const pad = layer.stroke ? Math.ceil(layer.stroke.width) + 2 : 0;
+        const off = document.createElement('canvas');
+        off.width = Math.max(1, Math.ceil(maxW) + pad * 2);
+        off.height = Math.max(1, Math.ceil(lines.length * lineHeight + fontSize * 0.5) + pad * 2);
+        const octx = off.getContext('2d');
+        if (octx) {
+          octx.font = font;
+          octx.textBaseline = 'top';
+          octx.textAlign = 'left'; // we compute x manually
 
-        if (layer.stroke) {
-          ctx.strokeStyle = `rgba(${layer.stroke.color.join(',')})`;
-          ctx.lineWidth = layer.stroke.width * 2;
-          ctx.lineJoin = 'round';
-          ctx.strokeText(line, x, y);
+          lines.forEach((line, i) => {
+            const lineW = octx.measureText(line).width;
+            let x = 0;
+            if (align === 'center') x = (maxW - lineW) / 2;
+            else if (align === 'right') x = maxW - lineW;
+            const y = i * lineHeight;
+
+            if (layer.stroke) {
+              const [sr, sg, sb, sa] = layer.stroke.color;
+              octx.strokeStyle = `rgba(${sr},${sg},${sb},${sa / 255})`;
+              octx.lineWidth = layer.stroke.width * 2;
+              octx.lineJoin = 'round';
+              octx.strokeText(line, x + pad, y + pad);
+            }
+            const [r, g, b, a] = layer.color ?? [255, 255, 255, 255];
+            octx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
+            octx.fillText(line, x + pad, y + pad);
+          });
+
+          raster = { canvas: off, pad };
+          lruSet(textRasterCache, rasterKey, raster, TEXT_RASTER_CACHE_CAP);
         }
-        const [r, g, b, a] = layer.color ?? [255, 255, 255, 255];
-        ctx.fillStyle = `rgba(${r},${g},${b},${a / 255})`;
-        ctx.fillText(line, x, y);
-      });
+      }
+      if (raster) ctx.drawImage(raster.canvas, -raster.pad, -raster.pad);
     } else if (layer.layer_type === 'flare') {
       // resetTransform() cancels the per-layer affine transform applied above;
       // flare elements must be drawn in canvas coordinates, not layer space.
@@ -163,7 +326,7 @@ export async function renderFrame(
       const glowRadius = scale * 80;
       const glowGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, glowRadius);
       glowGrad.addColorStop(0, `rgba(255,255,255,${brightness.toFixed(3)})`);
-      glowGrad.addColorStop(0.3, `rgba(255,255,220,${(brightness * 0.7).toFixed(3)})`);
+      glowGrad.addColorStop(0.3, `rgba(255,255,255,${(brightness * 0.7).toFixed(3)})`);
       glowGrad.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = glowGrad as unknown as string;
       ctx.beginPath();
@@ -198,7 +361,8 @@ export async function renderFrame(
         ox, oy, haloRadius + haloThick,
       );
       haloGrad.addColorStop(0, 'rgba(255,232,124,0)');
-      haloGrad.addColorStop(0.5, `rgba(255,123,0,${Math.min(1, brightness * 0.5).toFixed(3)})`);
+      // Ring peak matches the backend's #FFE87C yellow (flare_renderer.rs).
+      haloGrad.addColorStop(0.5, `rgba(255,232,124,${Math.min(1, brightness * 0.5).toFixed(3)})`);
       haloGrad.addColorStop(1, 'rgba(255,232,124,0)');
       ctx.fillStyle = haloGrad as unknown as string;
       ctx.beginPath();
@@ -207,7 +371,8 @@ export async function renderFrame(
 
       const outerGrad = ctx.createRadialGradient(ox, oy, scale * 80, ox, oy, scale * 140);
       outerGrad.addColorStop(0, 'rgba(255,123,0,0)');
-      outerGrad.addColorStop(0.6, `rgba(255,123,0,${Math.min(1, brightness * 0.2).toFixed(3)})`);
+      // Peak brightness matches the backend's brightness * 0.4 outer halo.
+      outerGrad.addColorStop(0.6, `rgba(255,123,0,${Math.min(1, brightness * 0.4).toFixed(3)})`);
       outerGrad.addColorStop(1, 'rgba(255,123,0,0)');
       ctx.fillStyle = outerGrad as unknown as string;
       ctx.beginPath();
@@ -225,10 +390,10 @@ export async function renderFrame(
 
       for (let i = 0; i < 4; i++) {
         const phase = i * 0.5;
-        const gb = Math.min(
-          1.0,
-          brightness * ghostAlphas[i] * (1 + 0.3 * Math.sin(frameIndex * pulseSpeed + phase)),
-        );
+        // No clamp: the backend leaves ghost brightness unclamped and lets
+        // the rasteriser saturate, so >1 values must survive here too.
+        const gb =
+          brightness * ghostAlphas[i] * (1 + 0.3 * Math.sin(frameIndex * pulseSpeed + phase));
         const gx = ox + axisX * ghostOffsets[i];
         const gy = oy + axisY * ghostOffsets[i];
         const gr = scale * 80 * ghostSizes[i];
