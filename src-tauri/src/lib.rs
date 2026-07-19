@@ -7,13 +7,14 @@
 pub mod compositor;
 pub mod error;
 pub mod export;
+pub mod flare_renderer;
+pub mod font_data;
 pub mod fonts;
 pub mod frame_source;
 pub mod gif_decoder;
 pub mod image_source;
 pub mod layer;
 pub mod project;
-pub mod flare_renderer;
 pub mod text_renderer;
 pub mod video_decoder;
 
@@ -34,7 +35,6 @@ pub fn run() {
         .manage(Mutex::new(AppState::default()) as ProjectState)
         .invoke_handler(tauri::generate_handler![
             commands::open_file,
-            commands::open_gif,
             commands::get_frame,
             commands::add_image_layer,
             commands::add_text_layer,
@@ -44,7 +44,8 @@ pub fn run() {
             commands::reorder_layers,
             commands::render_composite,
             commands::get_layers,
-            commands::get_system_fonts,
+            commands::get_available_fonts,
+            font_data::get_font_data,
             commands::export_project,
             commands::check_ffmpeg,
             commands::delete_frames,

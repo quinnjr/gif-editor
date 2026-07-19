@@ -12,6 +12,8 @@
 use std::fs::File;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use image::imageops;
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,55 @@ use crate::compositor;
 use crate::error::AppError;
 use crate::frame_source::FrameSource;
 use crate::layer::Layer;
+use crate::video_decoder::{VideoData, run_with_timeout};
+
+// ---------------------------------------------------------------------------
+// Shared frame iteration
+// ---------------------------------------------------------------------------
+
+/// Drive `f(base, logical)` over the selected source frames in logical order.
+///
+/// Video sources decode a frame per ffmpeg subprocess in `get_frame`, so for
+/// them every needed frame is streamed from ONE ffmpeg invocation instead,
+/// skipping unselected source frames.  This requires `frame_indices` to be
+/// strictly increasing, which holds for the exclusion-derived logical→source
+/// map (order-preserving); fall back to per-frame `get_frame` otherwise, and
+/// for all other sources.
+fn for_each_selected_frame(
+    source: &mut dyn FrameSource,
+    frame_indices: &[usize],
+    mut f: impl FnMut(&image::RgbaImage, usize) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    let sequential = frame_indices.windows(2).all(|w| w[0] < w[1]);
+    if sequential
+        && !frame_indices.is_empty()
+        && let Some(video) = source.as_any_mut().downcast_mut::<VideoData>()
+    {
+        let last = *frame_indices.last().unwrap();
+        let mut next = 0usize; // next unwritten position in frame_indices
+        video.stream_frames(last + 1, |src_i, base| {
+            if next < frame_indices.len() && frame_indices[next] == src_i {
+                f(&base, next)?;
+                next += 1;
+            }
+            Ok(())
+        })?;
+        if next != frame_indices.len() {
+            return Err(AppError::Export(format!(
+                "video stream ended before all selected frames were decoded \
+                 ({next} of {} written)",
+                frame_indices.len()
+            )));
+        }
+        return Ok(());
+    }
+
+    for (logical, &src_i) in frame_indices.iter().enumerate() {
+        let base = source.get_frame(src_i)?;
+        f(&base, logical)?;
+    }
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -39,12 +90,159 @@ pub enum ExportFormat {
 pub struct ExportSettings {
     pub format: ExportFormat,
     /// Perceptual quality, 0 = worst, 100 = best.
+    ///
+    /// Applies to GIF quantisation, video CRF (MP4/WebM), and JPEG encoding.
+    /// WebP stills are always written lossless and ignore this field.
     pub quality: u8,
     /// Optional resize target (width, height) in pixels.
     pub resize: Option<(u32, u32)>,
     /// Frame index to export for still-image formats (Png, Jpeg, WebP).
     /// Ignored for animated formats (Gif, Mp4, WebM).
     pub frame_index: Option<usize>,
+}
+
+// ---------------------------------------------------------------------------
+// Exporting placeholder + export dispatch
+// ---------------------------------------------------------------------------
+
+/// Placeholder frame source installed in the project while an export owns
+/// the real source.
+///
+/// Metadata queries (`frame_count`, `dimensions`, `delays`, `source_path`)
+/// report the cached values so timeline state stays sane, but fetching pixel
+/// data fails with "export in progress" until the real source is restored.
+pub struct ExportingPlaceholder {
+    frame_count: usize,
+    dimensions: (u32, u32),
+    delays: Vec<u16>,
+    source_path: std::path::PathBuf,
+}
+
+impl ExportingPlaceholder {
+    /// Snapshot `source`'s metadata into a placeholder that can stand in for
+    /// it while the real source is moved out for an export.
+    pub fn for_source(source: &dyn FrameSource) -> Self {
+        Self {
+            frame_count: source.frame_count(),
+            dimensions: source.dimensions(),
+            delays: source.delays().to_vec(),
+            source_path: source.source_path().to_path_buf(),
+        }
+    }
+}
+
+impl FrameSource for ExportingPlaceholder {
+    fn frame_count(&self) -> usize {
+        self.frame_count
+    }
+
+    fn dimensions(&self) -> (u32, u32) {
+        self.dimensions
+    }
+
+    fn delays(&self) -> &[u16] {
+        &self.delays
+    }
+
+    fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    fn get_frame(&mut self, _index: usize) -> Result<image::RgbaImage, AppError> {
+        Err(AppError::Export("export in progress".into()))
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// Everything an export needs, snapshotted from the project under the state
+/// lock (see `Project::take_source_for_export`) so the export itself can run
+/// without holding the lock.
+pub struct ExportSnapshot {
+    /// The real frame source, moved out of the project for the export's
+    /// duration (an `ExportingPlaceholder` stands in for it meanwhile).
+    pub source: Box<dyn FrameSource>,
+    /// Layer stack clone (cheap: pixel buffers are Arc-shared).
+    pub layers: Vec<Layer>,
+    /// Source frame indices to export, in logical (timeline) order.
+    pub frame_indices: Vec<usize>,
+    /// Per-logical-frame delays in 1/100 s units.
+    pub delays: Vec<u16>,
+    /// `(source_index, logical_index)` for still-image formats, resolved
+    /// while the project was intact; `None` for animated formats.
+    pub still_frame: Option<(usize, usize)>,
+}
+
+impl std::fmt::Debug for ExportSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `source` is an opaque trait object; show its metadata instead.
+        f.debug_struct("ExportSnapshot")
+            .field("source_path", &self.source.source_path())
+            .field("source_frame_count", &self.source.frame_count())
+            .field("layers", &self.layers.len())
+            .field("frame_indices", &self.frame_indices)
+            .field("delays", &self.delays)
+            .field("still_frame", &self.still_frame)
+            .finish()
+    }
+}
+
+/// Dispatch an export to the format-specific implementation.
+///
+/// On error the partial (possibly corrupt) output file is removed so a
+/// failed export never leaves garbage at the user's chosen path.
+pub fn run_export(
+    snapshot: &mut ExportSnapshot,
+    settings: &ExportSettings,
+    output_path: &Path,
+    on_progress: impl Fn(usize),
+) -> Result<(), AppError> {
+    let ExportSnapshot {
+        source,
+        layers,
+        frame_indices,
+        delays,
+        still_frame,
+    } = snapshot;
+
+    let result = match settings.format {
+        ExportFormat::Gif => export_gif(
+            source.as_mut(),
+            layers,
+            settings,
+            output_path,
+            frame_indices,
+            delays,
+            on_progress,
+        ),
+        ExportFormat::Mp4 | ExportFormat::WebM => export_video(
+            source.as_mut(),
+            layers,
+            settings,
+            output_path,
+            frame_indices,
+            delays,
+            on_progress,
+        ),
+        ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => match *still_frame {
+            Some((src, logical)) => {
+                export_image(source.as_mut(), layers, settings, output_path, src, logical)
+            }
+            None => Err(AppError::Export(
+                "still-image export requires a resolved frame index".into(),
+            )),
+        },
+    };
+
+    if result.is_err() {
+        // export_gif creates the file up front and export_video's ffmpeg
+        // writes it directly, so a failure mid-export leaves a truncated or
+        // corrupt file behind — remove it.
+        let _ = std::fs::remove_file(output_path);
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -82,9 +280,9 @@ pub fn export_gif(
         .set_repeat(gif::Repeat::Infinite)
         .map_err(|e| AppError::Export(e.to_string()))?;
 
-    for (logical, &src_i) in frame_indices.iter().enumerate() {
-        let base = source.get_frame(src_i)?;
-        let composited = compositor::composite_frame(&base, layers, logical);
+    // Composite, quantise, and encode one logical frame.
+    let mut encode_frame = |base: &image::RgbaImage, logical: usize| -> Result<(), AppError> {
+        let composited = compositor::composite_frame(base, layers, logical);
 
         // Resize if requested.
         let final_img = if (out_w, out_h) != (src_w, src_h) {
@@ -138,9 +336,10 @@ pub fn export_gif(
             .map_err(|e| AppError::Export(e.to_string()))?;
 
         on_progress(logical + 1);
-    }
+        Ok(())
+    };
 
-    Ok(())
+    for_each_selected_frame(source, frame_indices, &mut encode_frame)
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +364,30 @@ pub fn export_video(
     delays: &[u16],
     on_progress: impl Fn(usize),
 ) -> Result<(), AppError> {
+    // Validate the format up front, before the ffmpeg gate and before any
+    // frame is composited or written: a caller bug should fail fast, not
+    // after minutes of frame writing (and regardless of ffmpeg presence).
+    //
+    // Map quality 0–100 → CRF.
+    // libx264: CRF 0 (lossless) – 51 (worst); quality 100 → CRF 0, quality 0 → CRF 51.
+    // libvpx-vp9: CRF 0–63; quality 100 → CRF 0, quality 0 → CRF 63.
+    let (codec, crf) = match settings.format {
+        ExportFormat::Mp4 => {
+            let crf = (51.0 * (1.0 - settings.quality as f64 / 100.0)).round() as u32;
+            ("libx264", crf)
+        }
+        ExportFormat::WebM => {
+            let crf = (63.0 * (1.0 - settings.quality as f64 / 100.0)).round() as u32;
+            ("libvpx-vp9", crf)
+        }
+        ExportFormat::Gif | ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
+            return Err(AppError::Export(
+                "export_video called with non-video format; use export_gif or export_image instead"
+                    .to_string(),
+            ));
+        }
+    };
+
     if !ffmpeg_available() {
         return Err(AppError::Export(
             "ffmpeg not found on PATH; install ffmpeg to export video".to_string(),
@@ -186,9 +409,9 @@ pub fn export_video(
 
     let temp_dir = tempfile::TempDir::new()?;
 
-    for (logical, &src_i) in frame_indices.iter().enumerate() {
-        let base = source.get_frame(src_i)?;
-        let composited = compositor::composite_frame(&base, layers, logical);
+    // Composite, resize, and write one logical frame as a PNG.
+    let mut write_frame = |base: &image::RgbaImage, logical: usize| -> Result<(), AppError> {
+        let composited = compositor::composite_frame(base, layers, logical);
 
         let final_img = if (out_w, out_h) != (src_w, src_h) {
             imageops::resize(&composited, out_w, out_h, imageops::FilterType::Lanczos3)
@@ -196,32 +419,17 @@ pub fn export_video(
             composited
         };
 
+        // These PNGs exist only for ffmpeg to immediately re-read, so trade
+        // file size for encode speed (fast compression, no filtering) via the
+        // shared temp-PNG helper.  The final still-image PNG export
+        // (export_image) keeps default quality.
         let png_path = temp_dir.path().join(format!("frame_{logical:06}.png"));
-        final_img
-            .save(&png_path)
-            .map_err(|e| AppError::Export(e.to_string()))?;
-
+        crate::project::save_temp_png(&final_img, &png_path)?;
         on_progress(logical + 1);
-    }
-
-    // Map quality 0–100 → CRF.
-    // libx264: CRF 0 (lossless) – 51 (worst); quality 100 → CRF 0, quality 0 → CRF 51.
-    // libvpx-vp9: CRF 0–63; quality 100 → CRF 0, quality 0 → CRF 63.
-    let (codec, crf) = match settings.format {
-        ExportFormat::Mp4 => {
-            let crf = (51.0 * (1.0 - settings.quality as f64 / 100.0)).round() as u32;
-            ("libx264", crf)
-        }
-        ExportFormat::WebM => {
-            let crf = (63.0 * (1.0 - settings.quality as f64 / 100.0)).round() as u32;
-            ("libvpx-vp9", crf)
-        }
-        ExportFormat::Gif | ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
-            return Err(AppError::Export(
-                "export_video called with non-video format; use export_gif or export_image instead".to_string(),
-            ));
-        }
+        Ok(())
     };
+
+    for_each_selected_frame(source, frame_indices, &mut write_frame)?;
 
     let input_pattern = temp_dir
         .path()
@@ -266,13 +474,19 @@ pub fn export_video(
         &output_str,
     ]);
 
-    let status = cmd
-        .status()
-        .map_err(|e| AppError::Export(format!("failed to spawn ffmpeg: {e}")))?;
+    // The final encode is long-running by design, so instead of a fixed
+    // timeout use a generous one derived from the work size: a 60 s floor
+    // plus 2 s per frame.  Real encodes of small PNG frames finish far
+    // faster; only a wedged ffmpeg gets anywhere near the deadline.
+    let encode_timeout = Duration::from_secs(60 + 2 * frame_count as u64);
+    let output = run_with_timeout(&mut cmd, encode_timeout, "ffmpeg").map_err(AppError::Export)?;
 
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(AppError::Export(format!(
-            "ffmpeg exited with status {status}"
+            "ffmpeg exited with status {}: {}",
+            output.status,
+            stderr.trim()
         )));
     }
 
@@ -302,20 +516,24 @@ fn flatten_alpha(img: &image::RgbaImage) -> image::RgbImage {
 
 /// Export a single composited frame as a PNG, JPEG, or WebP still image.
 ///
-/// `frame_index` is the source frame index to composite and export.
+/// `source_index` is the source frame index to fetch from `source`;
+/// `logical_index` is the corresponding logical (visible-timeline) index used
+/// to composite layers, whose frame ranges and keyframes live in logical
+/// space.  The two differ when frames have been deleted.
 /// Returns `AppError::Export` if called with an animated format.
 pub fn export_image(
     source: &mut dyn FrameSource,
     layers: &[Layer],
     settings: &ExportSettings,
     output_path: &Path,
-    frame_index: usize,
+    source_index: usize,
+    logical_index: usize,
 ) -> Result<(), AppError> {
     let (src_w, src_h) = source.dimensions();
     let (out_w, out_h) = settings.resize.unwrap_or((src_w, src_h));
 
-    let base = source.get_frame(frame_index)?;
-    let composited = compositor::composite_frame(&base, layers, frame_index);
+    let base = source.get_frame(source_index)?;
+    let composited = compositor::composite_frame(&base, layers, logical_index);
 
     let final_img = if (out_w, out_h) != (src_w, src_h) {
         imageops::resize(&composited, out_w, out_h, imageops::FilterType::Lanczos3)
@@ -341,7 +559,9 @@ pub fn export_image(
                 .map_err(|e| AppError::Export(e.to_string()))?;
         }
         ExportFormat::WebP => {
-            // quality field unused; WebP is always written lossless
+            // `settings.quality` is intentionally ignored here: WebP stills
+            // are always written lossless (see the ExportSettings::quality
+            // doc).
             image::DynamicImage::ImageRgba8(final_img)
                 .save(output_path)
                 .map_err(|e| AppError::Export(e.to_string()))?;
@@ -362,12 +582,21 @@ pub fn export_image(
 // ---------------------------------------------------------------------------
 
 /// Return `true` if ffmpeg is available on PATH.
+///
+/// The probe (`ffmpeg -version`, bounded at 5 s) runs once per process and
+/// the result is memoized for the rest of the session — the export dialog
+/// calls this on every open, and PATH changes mid-session are not a
+/// supported scenario.  A wedged or missing ffmpeg therefore costs at most
+/// one bounded probe.
 pub fn ffmpeg_available() -> bool {
-    Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
+    static FFMPEG_AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *FFMPEG_AVAILABLE.get_or_init(|| {
+        run_with_timeout(
+            Command::new("ffmpeg").arg("-version"),
+            Duration::from_secs(5),
+            "ffmpeg",
+        )
+        .map(|o| o.status.success())
         .unwrap_or(false)
+    })
 }
