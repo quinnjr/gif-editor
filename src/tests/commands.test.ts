@@ -7,7 +7,6 @@ vi.mock('@tauri-apps/api/core', () => ({
 import { invoke } from '@tauri-apps/api/core';
 import {
   openFile,
-  openGif,
   getFrame,
   addImageLayer,
   addTextLayer,
@@ -18,11 +17,17 @@ import {
   renderComposite,
   exportProject,
   getLayers,
-  getSystemFonts,
+  getAvailableFonts,
+  getFontData,
   checkFfmpeg,
   deleteFrames,
   restoreFrames,
   getExcludedFrames,
+  undo,
+  redo,
+  flipLayer,
+  duplicateLayer,
+  scaleAllLayers,
 } from '$lib/commands';
 
 const mockedInvoke = vi.mocked(invoke);
@@ -37,14 +42,6 @@ describe('commands', () => {
     mockedInvoke.mockResolvedValue(meta);
     const result = await openFile('/test.gif');
     expect(mockedInvoke).toHaveBeenCalledWith('open_file', { path: '/test.gif' });
-    expect(result).toEqual(meta);
-  });
-
-  it('openGif calls invoke with correct args', async () => {
-    const meta = { frame_count: 5, width: 50, height: 50, delays: [50] };
-    mockedInvoke.mockResolvedValue(meta);
-    const result = await openGif('/test2.gif');
-    expect(mockedInvoke).toHaveBeenCalledWith('open_gif', { path: '/test2.gif' });
     expect(result).toEqual(meta);
   });
 
@@ -154,11 +151,18 @@ describe('commands', () => {
     expect(result).toEqual([]);
   });
 
-  it('getSystemFonts calls invoke with no extra args', async () => {
+  it('getAvailableFonts calls invoke with no extra args', async () => {
     mockedInvoke.mockResolvedValue(['Arial', 'Helvetica']);
-    const result = await getSystemFonts();
-    expect(mockedInvoke).toHaveBeenCalledWith('get_system_fonts');
+    const result = await getAvailableFonts();
+    expect(mockedInvoke).toHaveBeenCalledWith('get_available_fonts');
     expect(result).toEqual(['Arial', 'Helvetica']);
+  });
+
+  it('getFontData calls invoke with correct args', async () => {
+    mockedInvoke.mockResolvedValue('QUJD');
+    const result = await getFontData('Anton');
+    expect(mockedInvoke).toHaveBeenCalledWith('get_font_data', { family: 'Anton' });
+    expect(result).toBe('QUJD');
   });
 
   it('checkFfmpeg calls invoke with no extra args', async () => {
@@ -204,5 +208,53 @@ describe('commands', () => {
     mockedInvoke.mockResolvedValue(layer);
     await addFlareLayer([100, 200]);
     expect(mockedInvoke).toHaveBeenCalledWith('add_flare_layer', { position: [100, 200] });
+  });
+
+  it('undo calls invoke with no extra args', async () => {
+    const layers = [{ id: 'l1' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await undo();
+    expect(mockedInvoke).toHaveBeenCalledWith('undo');
+    expect(result).toEqual(layers);
+  });
+
+  it('redo calls invoke with no extra args', async () => {
+    const layers = [{ id: 'l1' }, { id: 'l2' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await redo();
+    expect(mockedInvoke).toHaveBeenCalledWith('redo');
+    expect(result).toEqual(layers);
+  });
+
+  it('flipLayer calls invoke with correct args', async () => {
+    const updated = { id: 'l1', flip_h: true };
+    mockedInvoke.mockResolvedValue(updated);
+    const result = await flipLayer('l1', 'horizontal');
+    expect(mockedInvoke).toHaveBeenCalledWith('flip_layer', { id: 'l1', axis: 'horizontal' });
+    expect(result).toEqual(updated);
+  });
+
+  it('flipLayer supports the vertical axis', async () => {
+    const updated = { id: 'l1', flip_v: true };
+    mockedInvoke.mockResolvedValue(updated);
+    const result = await flipLayer('l1', 'vertical');
+    expect(mockedInvoke).toHaveBeenCalledWith('flip_layer', { id: 'l1', axis: 'vertical' });
+    expect(result).toEqual(updated);
+  });
+
+  it('duplicateLayer calls invoke with correct args', async () => {
+    const copy = { id: 'l2', name: 'Layer copy' };
+    mockedInvoke.mockResolvedValue(copy);
+    const result = await duplicateLayer('l1');
+    expect(mockedInvoke).toHaveBeenCalledWith('duplicate_layer', { id: 'l1' });
+    expect(result).toEqual(copy);
+  });
+
+  it('scaleAllLayers calls invoke with correct args', async () => {
+    const layers = [{ id: 'l1' }, { id: 'l2' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await scaleAllLayers(1.5, 0.75);
+    expect(mockedInvoke).toHaveBeenCalledWith('scale_all_layers', { scaleX: 1.5, scaleY: 0.75 });
+    expect(result).toEqual(layers);
   });
 });

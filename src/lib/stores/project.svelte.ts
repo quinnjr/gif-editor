@@ -52,6 +52,15 @@ class ProjectStore {
     return updated;
   }
 
+  /**
+   * Patch a layer in local state only, without a backend call (and therefore
+   * without pushing a history entry). Used for live preview during gestures;
+   * callers must persist the final value with `updateLayer` on gesture end.
+   */
+  updateLayerLocal(id: string, changes: Partial<LayerInfo>) {
+    this.layers = this.layers.map((l) => (l.id === id ? { ...l, ...changes } : l));
+  }
+
   async removeLayer(id: string) {
     await cmd.removeLayer(id);
     this.layers = this.layers.filter((l) => l.id !== id);
@@ -88,10 +97,36 @@ class ProjectStore {
 
   async undo() {
     this.layers = await cmd.undo();
+    await this.syncFrameState();
   }
 
   async redo() {
     this.layers = await cmd.redo();
+    await this.syncFrameState();
+  }
+
+  /**
+   * Re-sync frame-related state after backend undo/redo, which restores
+   * excluded frames as well as layers. When the excluded set changed, the
+   * logical frame count shifts, so metadata is adjusted (the total source
+   * frame count `visible + excluded` is invariant) and the framePaths cache
+   * is invalidated — cached thumbnails are keyed by logical index, which is
+   * no longer valid. Replacing the metadata object also triggers the
+   * timeline strip to rebuild its thumbnails.
+   */
+  private async syncFrameState() {
+    const excluded = await cmd.getExcludedFrames();
+    const unchanged =
+      excluded.length === this.excludedFrames.length &&
+      excluded.every((f, i) => f === this.excludedFrames[i]);
+    if (unchanged) return;
+
+    if (this.metadata) {
+      const totalFrames = this.metadata.frame_count + this.excludedFrames.length;
+      this.metadata = { ...this.metadata, frame_count: totalFrames - excluded.length };
+    }
+    this.excludedFrames = excluded;
+    this.framePaths = new Map();
   }
 
   async flipLayer(id: string, axis: 'horizontal' | 'vertical') {
@@ -103,7 +138,9 @@ class ProjectStore {
     const newLayer = await cmd.duplicateLayer(id);
     const idx = this.layers.findIndex((l) => l.id === id);
     const updated = [...this.layers];
-    updated.splice(idx + 1, 0, newLayer);
+    // Insert after the source layer; append if the source isn't in the
+    // local list (backend accepted the id, so trust its result).
+    updated.splice(idx === -1 ? updated.length : idx + 1, 0, newLayer);
     this.layers = updated;
     return newLayer;
   }

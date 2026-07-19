@@ -5,10 +5,6 @@ export async function openFile(path: string): Promise<GifMetadata> {
   return invoke('open_file', { path });
 }
 
-export async function openGif(path: string): Promise<GifMetadata> {
-  return invoke('open_gif', { path });
-}
-
 export async function getFrame(frameIndex: number): Promise<string> {
   return invoke('get_frame', { frameIndex });
 }
@@ -55,8 +51,12 @@ export async function getLayers(): Promise<LayerInfo[]> {
   return invoke('get_layers');
 }
 
-export async function getSystemFonts(): Promise<string[]> {
-  return invoke('get_system_fonts');
+export async function getAvailableFonts(): Promise<string[]> {
+  return invoke('get_available_fonts');
+}
+
+export async function getFontData(family: string): Promise<string> {
+  return invoke('get_font_data', { family });
 }
 
 export async function checkFfmpeg(): Promise<boolean> {

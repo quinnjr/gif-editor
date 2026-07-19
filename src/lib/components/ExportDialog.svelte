@@ -12,7 +12,6 @@
   let quality = $state(80);
   let exporting = $state(false);
   let progress = $state(0);
-  let ffmpegAvailable = $state(false);
   let error = $state('');
 
   const stillFormats = new Set<ExportFormat>(['Png', 'Jpeg', 'WebP']);
@@ -22,7 +21,10 @@
 
   $effect(() => {
     if (open) {
-      cmd.checkFfmpeg().then((available) => (ffmpegAvailable = available));
+      cmd
+        .checkFfmpeg()
+        .then((available) => (ui.ffmpegAvailable = available))
+        .catch(() => (ui.ffmpegAvailable = false));
     }
   });
 
@@ -84,8 +86,8 @@
         Format
         <select bind:value={format} class="mt-1 block w-full rounded bg-zinc-700 px-3 py-2 text-sm">
           <option value="Gif">GIF</option>
-          <option value="Mp4" disabled={!ffmpegAvailable}>MP4 {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
-          <option value="WebM" disabled={!ffmpegAvailable}>WebM {!ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
+          <option value="Mp4" disabled={!ui.ffmpegAvailable}>MP4 {!ui.ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
+          <option value="WebM" disabled={!ui.ffmpegAvailable}>WebM {!ui.ffmpegAvailable ? '(ffmpeg required)' : ''}</option>
           <option value="Png">PNG (lossless)</option>
           <option value="Jpeg">JPEG</option>
           <option value="WebP">WebP (lossless)</option>

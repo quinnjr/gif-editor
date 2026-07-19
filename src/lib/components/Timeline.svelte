@@ -77,7 +77,8 @@
     } else {
       ui.setFrame(index);
       selectedFrames = new SvelteSet();
-      lastSelectedFrame = null;
+      // Plain click anchors the range for a following Shift+click.
+      lastSelectedFrame = index;
     }
   }
 
@@ -90,7 +91,7 @@
         ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
       }
     } catch (e) {
-      console.error('Delete frames failed:', e);
+      ui.showError(`Delete frames failed: ${e}`);
     }
     selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
@@ -111,7 +112,7 @@
         ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
       }
     } catch (e) {
-      console.error('Keep selected failed:', e);
+      ui.showError(`Keep selected failed: ${e}`);
     }
     selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
@@ -121,7 +122,7 @@
     try {
       await project.restoreAllFrames();
     } catch (e) {
-      console.error('Restore failed:', e);
+      ui.showError(`Restore failed: ${e}`);
     }
   }
 
@@ -196,11 +197,25 @@
       const next = (cur + 1) % meta.frame_count;
       const delayMs = (meta.delays[cur] ?? 100) / speed;
 
-      // Wait for the frame delay and pre-decode the next frame in parallel.
-      await Promise.all([
-        new Promise((r) => setTimeout(r, delayMs)),
-        project.getFramePath(next),
-      ]);
+      try {
+        // Wait for the frame delay and pre-decode the next frame in parallel.
+        await Promise.all([
+          new Promise((r) => setTimeout(r, delayMs)),
+          project.getFramePath(next),
+        ]);
+      } catch (err) {
+        // A pre-decode rejection would otherwise kill playback silently via
+        // an unhandled rejection. Stop playback; "export in progress" is a
+        // designed condition (the backend refuses uncached frame loads while
+        // exporting), so pause without a toast for it.
+        if (!cancelled) {
+          ui.setPlaying(false);
+          if (!String(err).includes('export in progress')) {
+            ui.showError(`Playback stopped: ${err}`);
+          }
+        }
+        return;
+      }
 
       if (cancelled) return;
       ui.setFrame(next);
@@ -223,7 +238,8 @@
     const kfIndex = selectedLayer.keyframes.findIndex((kf) => kf.frame === index);
     if (kfIndex === -1) return;
     const newKfs = selectedLayer.keyframes.filter((kf) => kf.frame !== index);
-    project.updateLayer(selectedLayer.id, { keyframes: newKfs });
+    project.updateLayer(selectedLayer.id, { keyframes: newKfs })
+      .catch((e) => ui.showError(`Failed to delete keyframe: ${e}`));
   }
 
   function stepBackward() {
@@ -265,16 +281,23 @@
     if (!dragging || !selectedLayer || !project.metadata) return;
     const frame = getFrameFromX(e.clientX);
     const [start, end] = selectedLayer.frame_range;
+    // Live-update local state only; the backend is hit once on drag end so
+    // the whole gesture produces a single undo history entry.
     if (dragging === 'start') {
       const newStart = Math.min(frame, end);
-      project.updateLayer(selectedLayer.id, { frame_range: [newStart, end] });
+      project.updateLayerLocal(selectedLayer.id, { frame_range: [newStart, end] });
     } else {
       const newEnd = Math.max(frame, start);
-      project.updateLayer(selectedLayer.id, { frame_range: [start, newEnd] });
+      project.updateLayerLocal(selectedLayer.id, { frame_range: [start, newEnd] });
     }
   }
 
   function onDragEnd(_e: PointerEvent) {
+    if (dragging && selectedLayer) {
+      // Persist the final range as one backend update (one history entry).
+      project.updateLayer(selectedLayer.id, { frame_range: selectedLayer.frame_range })
+        .catch((e) => ui.showError(`Failed to update frame range: ${e}`));
+    }
     dragging = null;
   }
 </script>
@@ -359,6 +382,7 @@
 
     <!-- Thumbnail strip -->
     <div class="relative flex-1 overflow-hidden">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         bind:this={stripEl}
         class="flex h-full items-center gap-0.5 overflow-x-auto px-1"

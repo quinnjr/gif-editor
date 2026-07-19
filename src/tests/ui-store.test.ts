@@ -52,6 +52,19 @@ describe('UiStore', () => {
     });
   });
 
+  describe('setPlaying', () => {
+    it('starts playback', () => {
+      ui.setPlaying(true);
+      expect(ui.isPlaying).toBe(true);
+    });
+
+    it('stops playback', () => {
+      ui.isPlaying = true;
+      ui.setPlaying(false);
+      expect(ui.isPlaying).toBe(false);
+    });
+  });
+
   describe('setPlaybackSpeed', () => {
     it('sets playbackSpeed', () => {
       ui.setPlaybackSpeed(2.0);
@@ -70,6 +83,30 @@ describe('UiStore', () => {
       ui.previewExport = true;
       ui.togglePreviewExport();
       expect(ui.previewExport).toBe(false);
+    });
+  });
+
+  describe('showToast / showError', () => {
+    it('sets message and type and increments toastId', () => {
+      const before = ui.toastId;
+      ui.showToast('hello', 'success');
+      expect(ui.toastMessage).toBe('hello');
+      expect(ui.toastType).toBe('success');
+      expect(ui.toastId).toBe(before + 1);
+    });
+
+    it('showToast defaults to error type', () => {
+      ui.showToast('oops');
+      expect(ui.toastType).toBe('error');
+    });
+
+    it('increments toastId for repeated identical messages so the toast re-shows', () => {
+      ui.showError('same message');
+      const first = ui.toastId;
+      ui.showError('same message');
+      expect(ui.toastMessage).toBe('same message');
+      expect(ui.toastType).toBe('error');
+      expect(ui.toastId).toBe(first + 1);
     });
   });
 
