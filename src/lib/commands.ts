@@ -5,10 +5,6 @@ export async function openFile(path: string): Promise<GifMetadata> {
   return invoke('open_file', { path });
 }
 
-export async function openGif(path: string): Promise<GifMetadata> {
-  return invoke('open_gif', { path });
-}
-
 export async function getFrame(frameIndex: number): Promise<string> {
   return invoke('get_frame', { frameIndex });
 }
@@ -25,6 +21,10 @@ export async function addTextLayer(
   stroke?: Stroke | null,
 ): Promise<LayerInfo> {
   return invoke('add_text_layer', { text, fontFamily, fontSize, color, stroke });
+}
+
+export async function addFlareLayer(position?: [number, number]): Promise<LayerInfo> {
+  return invoke('add_flare_layer', { position: position ?? null });
 }
 
 export async function updateLayer(id: string, changes: LayerUpdate): Promise<LayerInfo> {
@@ -51,8 +51,12 @@ export async function getLayers(): Promise<LayerInfo[]> {
   return invoke('get_layers');
 }
 
-export async function getSystemFonts(): Promise<string[]> {
-  return invoke('get_system_fonts');
+export async function getAvailableFonts(): Promise<string[]> {
+  return invoke('get_available_fonts');
+}
+
+export async function getFontData(family: string): Promise<string> {
+  return invoke('get_font_data', { family });
 }
 
 export async function checkFfmpeg(): Promise<boolean> {
@@ -69,4 +73,24 @@ export async function restoreFrames(sourceIndices: number[]): Promise<GifMetadat
 
 export async function getExcludedFrames(): Promise<number[]> {
   return invoke('get_excluded_frames');
+}
+
+export async function undo(): Promise<LayerInfo[]> {
+  return invoke('undo');
+}
+
+export async function redo(): Promise<LayerInfo[]> {
+  return invoke('redo');
+}
+
+export async function flipLayer(id: string, axis: 'horizontal' | 'vertical'): Promise<LayerInfo> {
+  return invoke('flip_layer', { id, axis });
+}
+
+export async function duplicateLayer(id: string): Promise<LayerInfo> {
+  return invoke('duplicate_layer', { id });
+}
+
+export async function scaleAllLayers(scaleX: number, scaleY: number): Promise<LayerInfo[]> {
+  return invoke('scale_all_layers', { scaleX, scaleY });
 }

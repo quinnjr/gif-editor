@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* The bundled fonts (Anton, Liberation Sans) are NOT declared here: the
+   TTFs are embedded in the Rust binary (src-tauri/src/fonts.rs) and the
+   preview fetches their bytes over IPC and registers them with the JS
+   FontFace API at normal weight (src/lib/utils/canvas-renderer.ts). */
+
 :root {
   color-scheme: dark;
 }

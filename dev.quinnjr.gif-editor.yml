@@ -12,11 +12,17 @@ finish-args:
   - --socket=x11
   - --socket=wayland
   - --socket=fallback-x11
+  - --socket=session-bus
   - --share=ipc
   - --device=dri
-  - --filesystem=home
-  - --filesystem=/tmp
+  - --filesystem=host
   - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1
+  - --own-name=org.mpris.MediaPlayer2.gif-editor
+  - --talk-name=org.freedesktop.portal.*
+  - --talk-name=org.gtk.vfs.*
+  - --talk-name=org.freedesktop.portal.OpenURI
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.a11y.Bus
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin

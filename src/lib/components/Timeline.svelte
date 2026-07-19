@@ -14,6 +14,48 @@
   let selectedFrames = $state(new SvelteSet<number>());
   let lastSelectedFrame = $state<number | null>(null);
 
+  // Drag-to-pan state
+  let isPanning = $state(false);
+  let panStartX = 0;
+  let panStartScroll = 0;
+
+  const PAN_THRESHOLD = 5;
+
+  function onStripPointerDown(e: PointerEvent) {
+    // Ignore non-primary buttons and modifier clicks (let those select immediately)
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    isPanning = false;
+    panStartX = e.clientX;
+    panStartScroll = stripEl?.scrollLeft ?? 0;
+    stripEl?.setPointerCapture(e.pointerId);
+  }
+
+  function onStripPointerMove(e: PointerEvent) {
+    if (!stripEl || !stripEl.hasPointerCapture(e.pointerId)) return;
+    const dx = e.clientX - panStartX;
+    if (!isPanning && Math.abs(dx) >= PAN_THRESHOLD) {
+      isPanning = true;
+    }
+    if (isPanning) {
+      stripEl.scrollLeft = panStartScroll - dx;
+    }
+  }
+
+  function onStripPointerUp(e: PointerEvent) {
+    if (!stripEl?.hasPointerCapture(e.pointerId)) return;
+    stripEl.releasePointerCapture(e.pointerId);
+    if (!isPanning) {
+      // Was a click, not a drag — find which frame was clicked
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const frameEl = target?.closest('[data-frame-index]') as HTMLElement | null;
+      if (frameEl) {
+        const index = parseInt(frameEl.dataset.frameIndex!, 10);
+        toggleFrameSelection(index, e as unknown as MouseEvent);
+      }
+    }
+    isPanning = false;
+  }
+
   function toggleFrameSelection(index: number, e: MouseEvent) {
     if (e.ctrlKey || e.metaKey) {
       const next = new SvelteSet(selectedFrames);
@@ -35,7 +77,8 @@
     } else {
       ui.setFrame(index);
       selectedFrames = new SvelteSet();
-      lastSelectedFrame = null;
+      // Plain click anchors the range for a following Shift+click.
+      lastSelectedFrame = index;
     }
   }
 
@@ -48,7 +91,7 @@
         ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
       }
     } catch (e) {
-      console.error('Delete frames failed:', e);
+      ui.showError(`Delete frames failed: ${e}`);
     }
     selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
@@ -69,7 +112,7 @@
         ui.setFrame(Math.max(0, project.metadata.frame_count - 1));
       }
     } catch (e) {
-      console.error('Keep selected failed:', e);
+      ui.showError(`Keep selected failed: ${e}`);
     }
     selectedFrames = new SvelteSet();
     lastSelectedFrame = null;
@@ -79,7 +122,7 @@
     try {
       await project.restoreAllFrames();
     } catch (e) {
-      console.error('Restore failed:', e);
+      ui.showError(`Restore failed: ${e}`);
     }
   }
 
@@ -154,11 +197,25 @@
       const next = (cur + 1) % meta.frame_count;
       const delayMs = (meta.delays[cur] ?? 100) / speed;
 
-      // Wait for the frame delay and pre-decode the next frame in parallel.
-      await Promise.all([
-        new Promise((r) => setTimeout(r, delayMs)),
-        project.getFramePath(next),
-      ]);
+      try {
+        // Wait for the frame delay and pre-decode the next frame in parallel.
+        await Promise.all([
+          new Promise((r) => setTimeout(r, delayMs)),
+          project.getFramePath(next),
+        ]);
+      } catch (err) {
+        // A pre-decode rejection would otherwise kill playback silently via
+        // an unhandled rejection. Stop playback; "export in progress" is a
+        // designed condition (the backend refuses uncached frame loads while
+        // exporting), so pause without a toast for it.
+        if (!cancelled) {
+          ui.setPlaying(false);
+          if (!String(err).includes('export in progress')) {
+            ui.showError(`Playback stopped: ${err}`);
+          }
+        }
+        return;
+      }
 
       if (cancelled) return;
       ui.setFrame(next);
@@ -181,7 +238,8 @@
     const kfIndex = selectedLayer.keyframes.findIndex((kf) => kf.frame === index);
     if (kfIndex === -1) return;
     const newKfs = selectedLayer.keyframes.filter((kf) => kf.frame !== index);
-    project.updateLayer(selectedLayer.id, { keyframes: newKfs });
+    project.updateLayer(selectedLayer.id, { keyframes: newKfs })
+      .catch((e) => ui.showError(`Failed to delete keyframe: ${e}`));
   }
 
   function stepBackward() {
@@ -223,16 +281,23 @@
     if (!dragging || !selectedLayer || !project.metadata) return;
     const frame = getFrameFromX(e.clientX);
     const [start, end] = selectedLayer.frame_range;
+    // Live-update local state only; the backend is hit once on drag end so
+    // the whole gesture produces a single undo history entry.
     if (dragging === 'start') {
       const newStart = Math.min(frame, end);
-      project.updateLayer(selectedLayer.id, { frame_range: [newStart, end] });
+      project.updateLayerLocal(selectedLayer.id, { frame_range: [newStart, end] });
     } else {
       const newEnd = Math.max(frame, start);
-      project.updateLayer(selectedLayer.id, { frame_range: [start, newEnd] });
+      project.updateLayerLocal(selectedLayer.id, { frame_range: [start, newEnd] });
     }
   }
 
   function onDragEnd(_e: PointerEvent) {
+    if (dragging && selectedLayer) {
+      // Persist the final range as one backend update (one history entry).
+      project.updateLayer(selectedLayer.id, { frame_range: selectedLayer.frame_range })
+        .catch((e) => ui.showError(`Failed to update frame range: ${e}`));
+    }
     dragging = null;
   }
 </script>
@@ -317,22 +382,27 @@
 
     <!-- Thumbnail strip -->
     <div class="relative flex-1 overflow-hidden">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         bind:this={stripEl}
         class="flex h-full items-center gap-0.5 overflow-x-auto px-1"
-        style="scrollbar-width: thin; scrollbar-color: #52525b transparent;"
+        style="scrollbar-width: thin; scrollbar-color: #52525b transparent; cursor: {isPanning ? 'grabbing' : 'grab'};"
+        onpointerdown={onStripPointerDown}
+        onpointermove={onStripPointerMove}
+        onpointerup={onStripPointerUp}
       >
         {#each thumbnails as src, i (i)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="relative h-12 w-16 shrink-0 cursor-pointer overflow-hidden rounded border-2
+            class="relative h-12 w-16 shrink-0 overflow-hidden rounded border-2
               {i === ui.currentFrame ? 'border-blue-400' : selectedFrames.has(i) ? 'border-amber-400' : 'border-zinc-600'}"
-            onclick={(e) => toggleFrameSelection(i, e)}
+            data-frame-index={i}
+            onclick={(e) => { if (e.ctrlKey || e.metaKey || e.shiftKey) toggleFrameSelection(i, e); }}
             oncontextmenu={(e) => handleThumbnailContextMenu(i, e)}
           >
             {#if src}
-              <img {src} alt="Frame {i + 1}" class="h-full w-full object-cover" />
+              <img {src} alt="Frame {i + 1}" class="h-full w-full object-cover" draggable="false" />
             {:else}
               <div class="h-full w-full bg-zinc-700"></div>
             {/if}

@@ -8,12 +8,13 @@
   <description>
     <p>
       A desktop application for editing GIFs, MP4s, WebMs, and static images.
-      Add image and text overlay layers with affine transforms (scale, skew),
-      keyframe animation, and per-frame positioning. Delete and restore frames,
-      export to GIF, MP4, or WebM with audio preservation.
+      Add image, text, and lens-flare overlay layers with affine transforms
+      (scale, skew, rotation), keyframe animation, and per-frame positioning.
+      Delete and restore frames, undo and redo edits, and export to GIF, MP4,
+      or WebM with audio preservation, or to PNG, JPEG, or WebP stills.
     </p>
   </description>
-  <url type="homepage">https://github.com/josephquinn/gif-editor</url>
+  <url type="homepage">https://github.com/quinnjr/gif-editor</url>
   <launchable type="desktop-id">dev.quinnjr.gif-editor.desktop</launchable>
   <content_rating type="oars-1.1" />
   <releases>

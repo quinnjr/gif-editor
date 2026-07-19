@@ -11,10 +11,11 @@ use uuid::Uuid;
 
 use crate::compositor::composite_frame;
 use crate::error::AppError;
+use crate::export::{ExportFormat, ExportSettings, ExportSnapshot, ExportingPlaceholder};
 use crate::frame_source::FrameSource;
 use crate::gif_decoder::GifData;
 use crate::image_source::ImageSource;
-use crate::layer::{ImageLayer, Keyframe, Layer, Stroke, TextLayer};
+use crate::layer::{FlareLayer, ImageLayer, Keyframe, Layer, Stroke, TextLayer};
 use crate::video_decoder::VideoData;
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ pub struct LayerInfo {
     pub scale_y: f64,
     pub skew_x: f64,
     pub skew_y: f64,
+    pub rotation: f64,
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
@@ -50,10 +52,17 @@ pub struct LayerInfo {
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
     pub stroke: Option<Stroke>,
+    pub text_align: Option<String>,
+    pub max_width: Option<f64>,
     // Image-specific (None for text layers)
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
     pub source_path: Option<String>,
+    pub is_animated: Option<bool>,
+    // Flare-specific (None for image/text layers)
+    pub intensity: Option<f64>,
+    pub scale: Option<f64>,
+    pub pulse_speed: Option<f64>,
     pub keyframes: Vec<Keyframe>,
 }
 
@@ -69,6 +78,7 @@ impl From<&Layer> for LayerInfo {
                 scale_y: l.scale_y,
                 skew_x: l.skew_x,
                 skew_y: l.skew_y,
+                rotation: l.rotation,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -77,9 +87,15 @@ impl From<&Layer> for LayerInfo {
                 font_size: None,
                 color: None,
                 stroke: None,
+                text_align: None,
+                max_width: None,
                 source_width: Some(l.source_width),
                 source_height: Some(l.source_height),
                 source_path: l.source_path.clone(),
+                is_animated: Some(l.is_animated),
+                intensity: None,
+                scale: None,
+                pulse_speed: None,
                 keyframes: l.keyframes.clone(),
             },
             Layer::Text(l) => LayerInfo {
@@ -91,6 +107,7 @@ impl From<&Layer> for LayerInfo {
                 scale_y: l.scale_y,
                 skew_x: l.skew_x,
                 skew_y: l.skew_y,
+                rotation: l.rotation,
                 opacity: l.opacity,
                 frame_range: l.frame_range,
                 visible: l.visible,
@@ -99,18 +116,71 @@ impl From<&Layer> for LayerInfo {
                 font_size: Some(l.font_size),
                 color: Some(l.color),
                 stroke: l.stroke.clone(),
+                text_align: Some(l.text_align.clone()),
+                max_width: l.max_width,
                 source_width: None,
                 source_height: None,
                 source_path: None,
+                is_animated: None,
+                intensity: None,
+                scale: None,
+                pulse_speed: None,
+                keyframes: l.keyframes.clone(),
+            },
+            Layer::Flare(l) => LayerInfo {
+                id: l.id,
+                name: l.name.clone(),
+                layer_type: "flare".to_string(),
+                position: l.position,
+                // Flares have no affine transform; these fields are fixed identity values.
+                scale_x: 1.0,
+                scale_y: 1.0,
+                skew_x: 0.0,
+                skew_y: 0.0,
+                rotation: 0.0,
+                opacity: l.opacity,
+                frame_range: l.frame_range,
+                visible: l.visible,
+                text: None,
+                font_family: None,
+                font_size: None,
+                color: None,
+                stroke: None,
+                text_align: None,
+                max_width: None,
+                source_width: None,
+                source_height: None,
+                source_path: None,
+                is_animated: None,
+                intensity: Some(l.intensity),
+                scale: Some(l.scale),
+                pulse_speed: Some(l.pulse_speed),
                 keyframes: l.keyframes.clone(),
             },
         }
     }
 }
 
+/// Deserialize a present field (including an explicit `null`) as `Some(...)`.
+///
+/// Combined with `#[serde(default)]` this yields the double-Option pattern:
+/// an absent field stays `None` (no change) while a present `null` becomes
+/// `Some(None)` (clear the value).
+fn deserialize_some<'de, T, D>(d: D) -> Result<Option<T>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(d).map(Some)
+}
+
 /// Partial update payload received from the frontend.  Every field is
 /// optional; only `Some` fields are applied.
-#[derive(serde::Deserialize)]
+///
+/// `stroke` and `max_width` are nullable on the layer itself, so they use the
+/// double-Option pattern: `None` = no change, `Some(None)` = clear the field
+/// (frontend sent an explicit `null`), `Some(Some(v))` = set to `v`.
+#[derive(serde::Deserialize, Default)]
 pub struct LayerUpdate {
     pub name: Option<String>,
     pub position: Option<(f64, f64)>,
@@ -118,6 +188,7 @@ pub struct LayerUpdate {
     pub scale_y: Option<f64>,
     pub skew_x: Option<f64>,
     pub skew_y: Option<f64>,
+    pub rotation: Option<f64>,
     pub opacity: Option<f64>,
     pub frame_range: Option<(usize, usize)>,
     pub visible: Option<bool>,
@@ -125,8 +196,15 @@ pub struct LayerUpdate {
     pub font_family: Option<String>,
     pub font_size: Option<f64>,
     pub color: Option<[u8; 4]>,
-    pub stroke: Option<Stroke>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub stroke: Option<Option<Stroke>>,
+    pub text_align: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub max_width: Option<Option<f64>>,
     pub keyframes: Option<Vec<Keyframe>>,
+    pub intensity: Option<f64>,
+    pub scale: Option<f64>,
+    pub pulse_speed: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -140,8 +218,92 @@ pub struct Project {
     pub excluded_frames: BTreeSet<usize>,
 }
 
-/// Global app state: at most one project open at a time.
-pub type ProjectState = Mutex<Option<Project>>;
+/// A snapshot of mutable project state for undo/redo.
+#[derive(Clone)]
+pub struct HistoryEntry {
+    pub layers: Vec<Layer>,
+    pub excluded_frames: BTreeSet<usize>,
+}
+
+/// Container holding the optional open project plus undo/redo history stacks.
+pub struct AppState {
+    pub project: Option<Project>,
+    pub history: Vec<HistoryEntry>,
+    pub redo_stack: Vec<HistoryEntry>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            project: None,
+            history: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+
+    /// Undo the last mutating action, restoring the most recent history
+    /// snapshot and pushing the replaced state onto the redo stack.
+    ///
+    /// Returns the resulting layer list, or `None` when no project is open.
+    /// When the history stack is empty the current layers are returned
+    /// unchanged.
+    pub fn undo(&mut self) -> Option<Vec<LayerInfo>> {
+        let project = self.project.as_mut()?;
+        let Some(entry) = self.history.pop() else {
+            return Some(project.get_layers());
+        };
+        self.redo_stack.push(HistoryEntry {
+            layers: std::mem::replace(&mut project.layers, entry.layers),
+            excluded_frames: std::mem::replace(&mut project.excluded_frames, entry.excluded_frames),
+        });
+        Some(project.get_layers())
+    }
+
+    /// Redo the last undone action, restoring the most recent redo snapshot
+    /// and pushing the replaced state back onto the history stack.
+    ///
+    /// Returns the resulting layer list, or `None` when no project is open.
+    /// When the redo stack is empty the current layers are returned
+    /// unchanged.
+    pub fn redo(&mut self) -> Option<Vec<LayerInfo>> {
+        let project = self.project.as_mut()?;
+        let Some(entry) = self.redo_stack.pop() else {
+            return Some(project.get_layers());
+        };
+        self.history.push(HistoryEntry {
+            layers: std::mem::replace(&mut project.layers, entry.layers),
+            excluded_frames: std::mem::replace(&mut project.excluded_frames, entry.excluded_frames),
+        });
+        Some(project.get_layers())
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Push a snapshot of the current project state onto the history stack.
+/// Clears the redo stack. No-op if no project is open.
+/// Cap: 50 entries (oldest dropped when full).
+pub fn push_history(app_state: &mut AppState) {
+    let Some(project) = &app_state.project else {
+        return;
+    };
+    let entry = HistoryEntry {
+        layers: project.layers.clone(),
+        excluded_frames: project.excluded_frames.clone(),
+    };
+    if app_state.history.len() >= 50 {
+        app_state.history.remove(0);
+    }
+    app_state.history.push(entry);
+    app_state.redo_stack.clear();
+}
+
+/// Global app state: at most one project open at a time, with undo/redo history.
+pub type ProjectState = Mutex<AppState>;
 
 impl Project {
     // -----------------------------------------------------------------------
@@ -215,6 +377,15 @@ impl Project {
         }
     }
 
+    /// Return all source frame indices that are currently visible, in
+    /// timeline order.  Equivalent to mapping every logical index through
+    /// `logical_to_source`, but computed in a single O(n) pass.
+    pub fn source_indices(&self) -> Vec<usize> {
+        (0..self.source.frame_count())
+            .filter(|i| !self.excluded_frames.contains(i))
+            .collect()
+    }
+
     pub fn logical_to_source(&self, logical: usize) -> Option<usize> {
         let total = self.source.frame_count();
         let mut count = 0usize;
@@ -245,12 +416,12 @@ impl Project {
     // -----------------------------------------------------------------------
 
     pub fn delete_frames(&mut self, logical_indices: &[usize]) -> Result<GifMetadata, AppError> {
-        let mut source_indices: Vec<usize> = Vec::new();
-        for &li in logical_indices {
-            if let Some(si) = self.logical_to_source(li) {
-                source_indices.push(si);
-            }
-        }
+        // Collect into a set: duplicate logical indices map to the same source
+        // frame and must not be double-counted by the delete-all guard below.
+        let source_indices: BTreeSet<usize> = logical_indices
+            .iter()
+            .filter_map(|&li| self.logical_to_source(li))
+            .collect();
 
         let new_excluded_count = self.excluded_frames.len() + source_indices.len();
         if new_excluded_count >= self.source.frame_count() {
@@ -399,6 +570,7 @@ impl Project {
             match layer {
                 Layer::Image(l) => l.frame_range = (ns, ne),
                 Layer::Text(l) => l.frame_range = (ns, ne),
+                Layer::Flare(l) => l.frame_range = (ns, ne),
             }
         }
     }
@@ -427,6 +599,7 @@ impl Project {
             match layer {
                 Layer::Image(l) => l.keyframes = new_kfs,
                 Layer::Text(l) => l.keyframes = new_kfs,
+                Layer::Flare(l) => l.keyframes = new_kfs,
             }
         }
     }
@@ -481,9 +654,7 @@ impl Project {
 
         if !png_path.exists() {
             let frame: RgbaImage = self.source.get_frame(src_index)?;
-            frame
-                .save(&png_path)
-                .map_err(|e| AppError::Export(e.to_string()))?;
+            save_temp_png(&frame, &png_path)?;
         }
 
         Ok(png_path.to_string_lossy().into_owned())
@@ -538,8 +709,9 @@ impl Project {
             }
 
             let mut l = ImageLayer::new(file_name, w, h);
-            l.image_data = frames.first().cloned();
-            l.frames = frames;
+            l.image_data = frames.first().cloned().map(std::sync::Arc::new);
+            l.frames = std::sync::Arc::new(frames);
+            l.is_animated = gif_frame_count > 1;
             l
         } else {
             // Static image.
@@ -548,7 +720,7 @@ impl Project {
                 .to_rgba8();
             let (w, h) = img.dimensions();
             let mut l = ImageLayer::new(file_name, w, h);
-            l.image_data = Some(img);
+            l.image_data = Some(std::sync::Arc::new(img));
             l
         };
 
@@ -598,6 +770,24 @@ impl Project {
         info
     }
 
+    /// Create a new solar flare layer covering all frames.
+    /// `position` defaults to the canvas centre when `None`.
+    pub fn add_flare_layer(&mut self, position: Option<(f64, f64)>) -> LayerInfo {
+        let frame_count = self.visible_frame_count();
+        let (width, height) = self.source.dimensions();
+
+        let mut layer = FlareLayer::new();
+        layer.position = position.unwrap_or((width as f64 / 2.0, height as f64 / 2.0));
+        layer.frame_range = (0, frame_count.saturating_sub(1));
+        // When frame_count is 0, saturating_sub yields (0, 0). Callers must guard
+        // on visible_frame_count() > 0 before rendering; the compositor skips
+        // layers whose frame_range excludes the current frame index.
+
+        let info = LayerInfo::from(&Layer::Flare(layer.clone()));
+        self.layers.push(Layer::Flare(layer));
+        info
+    }
+
     /// Apply a partial update to the layer identified by `id`.
     pub fn update_layer(&mut self, id: Uuid, changes: LayerUpdate) -> Result<LayerInfo, AppError> {
         let layer = self
@@ -625,6 +815,9 @@ impl Project {
                 }
                 if let Some(v) = changes.skew_y {
                     l.skew_y = v;
+                }
+                if let Some(v) = changes.rotation {
+                    l.rotation = v;
                 }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;
@@ -659,6 +852,9 @@ impl Project {
                 if let Some(v) = changes.skew_y {
                     l.skew_y = v;
                 }
+                if let Some(v) = changes.rotation {
+                    l.rotation = v;
+                }
                 if let Some(v) = changes.opacity {
                     l.opacity = v;
                 }
@@ -680,12 +876,50 @@ impl Project {
                 if let Some(v) = changes.color {
                     l.color = v;
                 }
-                if changes.stroke.is_some() {
-                    l.stroke = changes.stroke;
+                if let Some(v) = changes.stroke {
+                    // Some(None) clears the stroke; Some(Some(s)) sets it.
+                    l.stroke = v;
+                }
+                if let Some(v) = changes.text_align {
+                    l.text_align = v;
+                }
+                if let Some(v) = changes.max_width {
+                    // Some(None) clears the cap; Some(Some(w)) sets it.
+                    l.max_width = v;
                 }
                 if let Some(v) = changes.keyframes {
                     l.keyframes = v;
                 }
+            }
+            Layer::Flare(l) => {
+                if let Some(v) = changes.name {
+                    l.name = v;
+                }
+                if let Some(v) = changes.position {
+                    l.position = v;
+                }
+                if let Some(v) = changes.opacity {
+                    l.opacity = v;
+                }
+                if let Some(v) = changes.frame_range {
+                    l.frame_range = v;
+                }
+                if let Some(v) = changes.visible {
+                    l.visible = v;
+                }
+                if let Some(v) = changes.intensity {
+                    l.intensity = v;
+                }
+                if let Some(v) = changes.scale {
+                    l.scale = v;
+                }
+                if let Some(v) = changes.pulse_speed {
+                    l.pulse_speed = v;
+                }
+                if let Some(v) = changes.keyframes {
+                    l.keyframes = v;
+                }
+                // All other fields are silently ignored for flare layers.
             }
         }
 
@@ -722,6 +956,78 @@ impl Project {
         Ok(())
     }
 
+    /// Flip a layer horizontally or vertically by negating the appropriate scale axis.
+    pub fn flip_layer(&mut self, id: Uuid, axis: &str) -> Result<LayerInfo, AppError> {
+        let layer = self
+            .layers
+            .iter_mut()
+            .find(|l| l.id() == id)
+            .ok_or(AppError::LayerNotFound(id))?;
+
+        match layer {
+            Layer::Image(l) => match axis {
+                "horizontal" => l.scale_x *= -1.0,
+                "vertical" => l.scale_y *= -1.0,
+                _ => {}
+            },
+            Layer::Text(l) => match axis {
+                "horizontal" => l.scale_x *= -1.0,
+                "vertical" => l.scale_y *= -1.0,
+                _ => {}
+            },
+            // Flare layers have no affine scale axes; flip is a no-op.
+            Layer::Flare(_) => {}
+        }
+
+        Ok(LayerInfo::from(&*layer))
+    }
+
+    /// Clone the layer identified by `id` with a fresh UUID and insert it
+    /// immediately after the source in the layer stack.
+    pub fn duplicate_layer(&mut self, id: Uuid) -> Result<LayerInfo, AppError> {
+        let pos = self
+            .layers
+            .iter()
+            .position(|l| l.id() == id)
+            .ok_or(AppError::LayerNotFound(id))?;
+
+        let mut new_layer = self.layers[pos].clone();
+        // Assign a fresh UUID to the duplicate.
+        match &mut new_layer {
+            Layer::Image(l) => l.id = uuid::Uuid::new_v4(),
+            Layer::Text(l) => l.id = uuid::Uuid::new_v4(),
+            Layer::Flare(l) => l.id = uuid::Uuid::new_v4(),
+        }
+
+        let info = LayerInfo::from(&new_layer);
+        self.layers.insert(pos + 1, new_layer);
+        Ok(info)
+    }
+
+    /// Scale all layers by multiplying their current scale values.
+    pub fn scale_all_layers(
+        &mut self,
+        scale_x: f64,
+        scale_y: f64,
+    ) -> Result<Vec<LayerInfo>, AppError> {
+        for layer in &mut self.layers {
+            match layer {
+                Layer::Image(l) => {
+                    l.scale_x *= scale_x;
+                    l.scale_y *= scale_y;
+                }
+                Layer::Text(l) => {
+                    l.scale_x *= scale_x;
+                    l.scale_y *= scale_y;
+                }
+                Layer::Flare(_) => {
+                    // Flare layers don't have affine transforms
+                }
+            }
+        }
+        Ok(self.get_layers())
+    }
+
     /// Composite all layers onto the GIF frame at `logical_index`, save the
     /// result as a PNG in the temp directory, and return its path.
     pub fn render_composite(&mut self, logical_index: usize) -> Result<String, AppError> {
@@ -738,9 +1044,7 @@ impl Project {
             .temp_dir
             .path()
             .join(format!("composite_{src_index:05}.png"));
-        composited
-            .save(&out_path)
-            .map_err(|e| AppError::Export(e.to_string()))?;
+        save_temp_png(&composited, &out_path)?;
 
         Ok(out_path.to_string_lossy().into_owned())
     }
@@ -749,4 +1053,97 @@ impl Project {
     pub fn get_layers(&self) -> Vec<LayerInfo> {
         self.layers.iter().map(LayerInfo::from).collect()
     }
+
+    // -----------------------------------------------------------------------
+    // Export source hand-off
+    // -----------------------------------------------------------------------
+
+    /// Phase 1 of an export: snapshot everything the export needs and move
+    /// the frame source out of the project, leaving an `ExportingPlaceholder`
+    /// behind so metadata queries keep working while the export owns the real
+    /// source.
+    ///
+    /// Fails — before anything is swapped — with "export already in progress"
+    /// when the placeholder is already installed (a concurrent export owns
+    /// the real source), and with an out-of-bounds error when
+    /// `settings.frame_index` does not map to a visible frame for still-image
+    /// formats.
+    pub fn take_source_for_export(
+        &mut self,
+        settings: &ExportSettings,
+    ) -> Result<ExportSnapshot, AppError> {
+        if self
+            .source
+            .as_any_mut()
+            .downcast_mut::<ExportingPlaceholder>()
+            .is_some()
+        {
+            return Err(AppError::Export("export already in progress".into()));
+        }
+
+        // Resolve the still-image frame mapping while the project is intact:
+        // an out-of-bounds index must fail before the source is swapped out.
+        let still_frame = match settings.format {
+            ExportFormat::Png | ExportFormat::Jpeg | ExportFormat::WebP => {
+                // `frame_index` is a LOGICAL index (deleted frames excluded),
+                // the same space the GIF/video paths map through
+                // logical_to_source.
+                let logical = settings.frame_index.unwrap_or(0);
+                let src = self.logical_to_source(logical).ok_or_else(|| {
+                    AppError::Export(format!(
+                        "frame index {logical} out of bounds (visible={})",
+                        self.visible_frame_count()
+                    ))
+                })?;
+                Some((src, logical))
+            }
+            ExportFormat::Gif | ExportFormat::Mp4 | ExportFormat::WebM => None,
+        };
+
+        let placeholder = ExportingPlaceholder::for_source(self.source.as_ref());
+        let source = std::mem::replace(&mut self.source, Box::new(placeholder));
+        Ok(ExportSnapshot {
+            source,
+            // Cheap since layer pixel buffers are Arc-shared: this clones
+            // scalar fields and Arc pointers, not the decoded pixel data.
+            layers: self.layers.clone(),
+            frame_indices: self.source_indices(),
+            delays: self.visible_delays(),
+            still_frame,
+        })
+    }
+
+    /// Phase 3 of an export: put the real source back — but only while our
+    /// placeholder is still installed.  If a different project or source was
+    /// opened mid-export, the current source is not ours to replace.
+    pub fn restore_source_if_placeholder(&mut self, source: Box<dyn FrameSource>) {
+        if self
+            .source
+            .as_any_mut()
+            .downcast_mut::<ExportingPlaceholder>()
+            .is_some()
+        {
+            self.source = source;
+        }
+    }
+}
+
+/// Write a throwaway PNG with fast compression settings.
+///
+/// Temp frames live only long enough for WebKitGTK (or ffmpeg) to read them
+/// back, so encode speed matters and file size does not — the default
+/// adaptive-filter zlib encode dominates per-frame latency on the scrub and
+/// preview paths.  Also used by the video export path for its ffmpeg input
+/// frames (single definition of the fast-PNG encoder setup).
+pub(crate) fn save_temp_png(img: &RgbaImage, path: &Path) -> Result<(), AppError> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+
+    let file = std::fs::File::create(path).map_err(|e| AppError::Export(e.to_string()))?;
+    let encoder = PngEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        CompressionType::Fast,
+        FilterType::NoFilter,
+    );
+    img.write_with_encoder(encoder)
+        .map_err(|e| AppError::Export(e.to_string()))
 }

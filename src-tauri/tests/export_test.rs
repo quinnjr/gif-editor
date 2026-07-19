@@ -1,8 +1,14 @@
+use gif_editor_lib::error::AppError;
 use gif_editor_lib::export::{
-    ExportFormat, ExportSettings, export_gif, export_video, ffmpeg_available,
+    ExportFormat, ExportSettings, ExportSnapshot, ExportingPlaceholder, export_gif, export_image,
+    export_video, ffmpeg_available, run_export,
 };
+use gif_editor_lib::frame_source::FrameSource;
 use gif_editor_lib::gif_decoder::GifData;
 use gif_editor_lib::layer::{ImageLayer, Layer, TextLayer};
+use gif_editor_lib::project::Project;
+use gif_editor_lib::video_decoder::VideoData;
+use image::ImageReader;
 use std::path::PathBuf;
 
 fn fixture_path() -> PathBuf {
@@ -41,6 +47,7 @@ fn export_gif_produces_valid_file() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -70,6 +77,7 @@ fn export_gif_with_resize() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: Some((20, 20)),
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -96,7 +104,7 @@ fn export_gif_with_image_and_text_layers() {
     // Create a small overlay image
     let overlay = image::RgbaImage::from_pixel(5, 5, image::Rgba([0, 255, 0, 200]));
     let mut img_layer = ImageLayer::new("green-box".into(), 5, 5);
-    img_layer.image_data = Some(overlay);
+    img_layer.image_data = Some(std::sync::Arc::new(overlay));
     img_layer.position = (2.0, 2.0);
     img_layer.frame_range = (0, 2);
 
@@ -113,6 +121,7 @@ fn export_gif_with_image_and_text_layers() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
 
     let frame_count = gif.frame_count();
@@ -145,6 +154,7 @@ fn export_gif_with_skipped_frames() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     // Only export frames 0 and 2, skipping frame 1
     let frame_indices = vec![0, 2];
@@ -174,6 +184,7 @@ fn export_gif_single_frame() {
         format: ExportFormat::Gif,
         quality: 50,
         resize: None,
+        frame_index: None,
     };
     let frame_indices = vec![1];
     let delays = vec![10u16];
@@ -192,10 +203,18 @@ fn export_gif_single_frame() {
 }
 
 #[test]
-fn ffmpeg_available_returns_bool() {
-    // This just verifies the function runs without panicking.
-    // The result depends on the test environment.
-    let _available = ffmpeg_available();
+fn ffmpeg_available_matches_independent_probe() {
+    // ffmpeg_available memoizes its probe in a OnceLock, so calling it twice
+    // trivially agrees with itself; compare against an independent probe of
+    // the same environment instead.
+    let independent = std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert_eq!(ffmpeg_available(), independent);
 }
 
 #[test]
@@ -213,6 +232,7 @@ fn export_video_mp4_if_ffmpeg_present() {
         format: ExportFormat::Mp4,
         quality: 70,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -233,11 +253,170 @@ fn export_video_mp4_if_ffmpeg_present() {
 }
 
 #[test]
-fn export_video_gif_format_rejected() {
+fn export_video_webm_if_ffmpeg_present() {
     if !ffmpeg_available() {
-        eprintln!("skipping export_video_gif_format test: ffmpeg not on PATH");
+        eprintln!("skipping export_video_webm test: ffmpeg not on PATH");
         return;
     }
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("webm");
+
+    let settings = ExportSettings {
+        format: ExportFormat::WebM,
+        quality: 70,
+        resize: None,
+        frame_index: None,
+    };
+    let frame_count = gif.frame_count();
+    let frame_indices: Vec<usize> = (0..frame_count).collect();
+    let delays: Vec<u16> = gif.delays().to_vec();
+
+    export_video(
+        &mut gif,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+    assert!(output_path.exists());
+    assert!(std::fs::metadata(&output_path).unwrap().len() > 0);
+}
+
+fn video_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("test.mp4")
+}
+
+// Same fixture as video_decoder_test: 5 blue frames, 64x64, 10 fps.
+fn ensure_test_video() {
+    let path = video_fixture_path();
+    if path.exists() {
+        return;
+    }
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let status = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x64:d=0.5,fps=10",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&path)
+        .status()
+        .expect("ffmpeg not found");
+    assert!(status.success(), "ffmpeg failed to create test video");
+}
+
+/// Exporting a video source with deleted frames must produce exactly the
+/// selected frames.  This exercises the streaming decode path in
+/// `export_video` (single ffmpeg invocation, skipping unselected source
+/// frames) and verifies progress reporting stays 1-based and logical.
+#[test]
+fn export_video_mp4_with_deleted_frames_has_correct_frame_count() {
+    if !ffmpeg_available() {
+        eprintln!("skipping export_video_mp4_with_deleted_frames test: ffmpeg not on PATH");
+        return;
+    }
+    ensure_test_video();
+    let mut video = VideoData::open(&video_fixture_path()).unwrap();
+    assert_eq!(video.frame_count(), 5);
+
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("mp4");
+
+    let settings = ExportSettings {
+        format: ExportFormat::Mp4,
+        quality: 70,
+        resize: None,
+        frame_index: None,
+    };
+    // Simulate deleting source frames 1 and 3: logical→source map [0, 2, 4].
+    let frame_indices = vec![0usize, 2, 4];
+    let delays = vec![10u16, 10, 10];
+
+    let progress = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let p = progress.clone();
+    export_video(
+        &mut video,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        move |n| p.lock().unwrap().push(n),
+    )
+    .unwrap();
+
+    let result = VideoData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 3);
+    assert_eq!(result.dimensions(), (64, 64));
+    assert_eq!(*progress.lock().unwrap(), vec![1, 2, 3]);
+}
+
+/// Exporting a GIF from a video source with a deleted frame must produce
+/// exactly the selected frames.  This exercises the streaming decode path in
+/// `export_gif` (single ffmpeg invocation via `for_each_selected_frame`,
+/// skipping unselected source frames) and verifies progress reporting stays
+/// 1-based and logical.
+#[test]
+fn export_gif_from_video_with_deleted_frame_has_correct_frame_count() {
+    if !ffmpeg_available() {
+        eprintln!("skipping export_gif_from_video_with_deleted_frame test: ffmpeg not on PATH");
+        return;
+    }
+    ensure_test_video();
+    let mut video = VideoData::open(&video_fixture_path()).unwrap();
+    assert_eq!(video.frame_count(), 5);
+
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+        frame_index: None,
+    };
+    // Simulate deleting source frame 2: logical→source map [0, 1, 3, 4].
+    let frame_indices = vec![0usize, 1, 3, 4];
+    let delays = vec![10u16, 10, 10, 10];
+
+    let progress = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let p = progress.clone();
+    export_gif(
+        &mut video,
+        &[],
+        &settings,
+        &output_path,
+        &frame_indices,
+        &delays,
+        move |n| p.lock().unwrap().push(n),
+    )
+    .unwrap();
+
+    let result = GifData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 4);
+    assert_eq!(result.dimensions(), (64, 64));
+    assert_eq!(*progress.lock().unwrap(), vec![1, 2, 3, 4]);
+}
+
+/// Format validation runs before the ffmpeg gate and before any frame is
+/// composited, so the rejection is asserted on every machine — no ffmpeg
+/// guard — and no fixture compositing should be needed for it to fire.
+#[test]
+fn export_video_rejects_non_video_format() {
     ensure_test_gif();
     let mut gif = GifData::open(&fixture_path()).unwrap();
     let output = tempfile::NamedTempFile::new().unwrap();
@@ -247,6 +426,7 @@ fn export_video_gif_format_rejected() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_indices: Vec<usize> = (0..gif.frame_count()).collect();
     let delays: Vec<u16> = gif.delays().to_vec();
@@ -260,7 +440,11 @@ fn export_video_gif_format_rejected() {
         &delays,
         |_| {},
     );
-    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("non-video format"),
+        "expected non-video format rejection, got: {err}"
+    );
 }
 
 #[test]
@@ -273,6 +457,7 @@ fn export_gif_progress_callback_counts() {
         format: ExportFormat::Gif,
         quality: 80,
         resize: None,
+        frame_index: None,
     };
     let frame_count = gif.frame_count();
     let frame_indices: Vec<usize> = (0..frame_count).collect();
@@ -296,4 +481,551 @@ fn export_gif_progress_callback_counts() {
     let counts = progress.lock().unwrap();
     assert_eq!(counts.len(), frame_count);
     assert_eq!(*counts, vec![1, 2, 3]);
+}
+
+// ---------------------------------------------------------------------------
+// export_image tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn export_image_png_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("png");
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+}
+
+#[test]
+fn export_image_jpeg_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("jpg");
+    let settings = ExportSettings {
+        format: ExportFormat::Jpeg,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+    // JPEG is RGB — no alpha channel
+    assert!(matches!(
+        img.color(),
+        image::ColorType::Rgb8 | image::ColorType::L8
+    ));
+}
+
+#[test]
+fn export_image_webp_produces_valid_file() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("webp");
+    let settings = ExportSettings {
+        format: ExportFormat::WebP,
+        quality: 80,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0, 0).unwrap();
+    assert!(output_path.exists());
+    assert!(std::fs::metadata(&output_path).unwrap().len() > 0);
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 10);
+    assert_eq!(img.height(), 10);
+}
+
+#[test]
+fn export_image_png_with_resize() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("png");
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: Some((20, 20)),
+        frame_index: Some(0),
+    };
+    export_image(&mut gif, &[], &settings, &output_path, 0, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    assert_eq!(img.width(), 20);
+    assert_eq!(img.height(), 20);
+}
+
+#[test]
+fn export_image_jpeg_produces_rgb_output() {
+    ensure_test_gif();
+    let mut src = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("jpg");
+    let settings = ExportSettings {
+        format: ExportFormat::Jpeg,
+        quality: 95,
+        resize: None,
+        frame_index: Some(0),
+    };
+    export_image(&mut src, &[], &settings, &output_path, 0, 0).unwrap();
+    let img = ImageReader::open(&output_path).unwrap().decode().unwrap();
+    // JPEG is always RGB
+    assert!(matches!(img.color(), image::ColorType::Rgb8));
+}
+
+/// With a deleted frame, exporting logical frame N must fetch the mapped
+/// SOURCE frame while compositing layers at the LOGICAL index — mirroring
+/// what the export_project command does for still images.
+#[test]
+fn export_image_with_deleted_frame_uses_mapped_source_frame() {
+    ensure_test_gif();
+    let path = fixture_path();
+    let (mut project, _meta) = gif_editor_lib::project::Project::open(&path).unwrap();
+
+    // Fixture frames have red values 0, 80, 160. Delete logical frame 1
+    // (source 1, red=80): logical 1 now maps to source 2 (red=160).
+    project.delete_frames(&[1]).unwrap();
+    assert_eq!(project.logical_to_source(1), Some(2));
+
+    // Blue overlay active only on LOGICAL frame 1.
+    let overlay = image::RgbaImage::from_pixel(3, 3, image::Rgba([0, 0, 255, 255]));
+    let mut img_layer = ImageLayer::new("blue".into(), 3, 3);
+    img_layer.image_data = Some(std::sync::Arc::new(overlay));
+    img_layer.position = (0.0, 0.0);
+    img_layer.frame_range = (1, 1);
+    let layers = vec![Layer::Image(img_layer)];
+
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("png");
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: None,
+        frame_index: Some(1),
+    };
+
+    let logical = 1;
+    let src = project.logical_to_source(logical).unwrap();
+    export_image(
+        project.source.as_mut(),
+        &layers,
+        &settings,
+        &output_path,
+        src,
+        logical,
+    )
+    .unwrap();
+
+    let img = ImageReader::open(&output_path)
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba8();
+    // Base pixel away from the overlay comes from source frame 2 (red≈160),
+    // not deleted source frame 1 (red≈80).
+    let base_px = img.get_pixel(9, 9);
+    assert!(
+        base_px[0] > 120,
+        "expected source frame 2 (red≈160), got red={}",
+        base_px[0]
+    );
+    // The layer whose frame_range is (1,1) in LOGICAL space was composited.
+    let overlay_px = img.get_pixel(0, 0);
+    assert_eq!(
+        overlay_px[2], 255,
+        "overlay active on logical frame 1 should be composited"
+    );
+}
+
+/// The export_project command moves the frame source OUT of the project
+/// (leaving a placeholder behind) and runs the export against the owned
+/// source, so the state mutex is free during the export.  Prove at the
+/// project level that this move/export/restore round-trip produces output
+/// byte-identical to exporting in place, and leaves the project usable.
+#[test]
+fn export_with_moved_out_source_matches_in_place_export() {
+    ensure_test_gif();
+    let (mut project, _meta) = gif_editor_lib::project::Project::open(&fixture_path()).unwrap();
+
+    let overlay = image::RgbaImage::from_pixel(5, 5, image::Rgba([0, 255, 0, 200]));
+    let mut img_layer = ImageLayer::new("green".into(), 5, 5);
+    img_layer.image_data = Some(std::sync::Arc::new(overlay));
+    img_layer.position = (2.0, 2.0);
+    img_layer.frame_range = (0, 2);
+    let layers = vec![Layer::Image(img_layer)];
+
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+        frame_index: None,
+    };
+    let frame_indices = project.source_indices();
+    let delays = project.visible_delays();
+
+    // Reference: export directly against the source while it sits in the
+    // project (the pre-refactor flow).
+    let dir = tempfile::TempDir::new().unwrap();
+    let in_place = dir.path().join("in_place.gif");
+    export_gif(
+        project.source.as_mut(),
+        &layers,
+        &settings,
+        &in_place,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+
+    // Moved-out flow: swap the source for a stub that rejects frame fetches,
+    // export against the owned source, then restore.
+    struct Stub;
+    impl FrameSource for Stub {
+        fn frame_count(&self) -> usize {
+            3
+        }
+        fn dimensions(&self) -> (u32, u32) {
+            (10, 10)
+        }
+        fn delays(&self) -> &[u16] {
+            &[10, 10, 10]
+        }
+        fn source_path(&self) -> &std::path::Path {
+            std::path::Path::new("")
+        }
+        fn get_frame(
+            &mut self,
+            _index: usize,
+        ) -> Result<image::RgbaImage, gif_editor_lib::error::AppError> {
+            Err(gif_editor_lib::error::AppError::Export(
+                "export in progress".into(),
+            ))
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
+
+    let mut owned = std::mem::replace(&mut project.source, Box::new(Stub));
+    // While swapped out, uncached frame fetches fail loudly...
+    assert!(project.source.get_frame(0).is_err());
+    // ...but metadata queries stay sane.
+    assert_eq!(project.visible_frame_count(), 3);
+
+    let moved = dir.path().join("moved.gif");
+    export_gif(
+        owned.as_mut(),
+        &layers,
+        &settings,
+        &moved,
+        &frame_indices,
+        &delays,
+        |_| {},
+    )
+    .unwrap();
+    project.source = owned;
+
+    assert_eq!(
+        std::fs::read(&in_place).unwrap(),
+        std::fs::read(&moved).unwrap(),
+        "export via a moved-out source must be byte-identical to in-place export"
+    );
+    // The project is fully usable after the source is restored.
+    assert!(project.get_frame_png_path(0).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// run_export / ExportingPlaceholder / export source hand-off tests
+// ---------------------------------------------------------------------------
+
+fn animated_gif_settings() -> ExportSettings {
+    ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+        frame_index: None,
+    }
+}
+
+/// FrameSource stub whose `get_frame` starts failing at index `fail_at`.
+struct PartialSource {
+    fail_at: usize,
+    delays: Vec<u16>,
+}
+
+impl FrameSource for PartialSource {
+    fn frame_count(&self) -> usize {
+        self.delays.len()
+    }
+    fn dimensions(&self) -> (u32, u32) {
+        (8, 8)
+    }
+    fn delays(&self) -> &[u16] {
+        &self.delays
+    }
+    fn source_path(&self) -> &std::path::Path {
+        std::path::Path::new("")
+    }
+    fn get_frame(&mut self, index: usize) -> Result<image::RgbaImage, AppError> {
+        if index < self.fail_at {
+            Ok(image::RgbaImage::from_pixel(
+                8,
+                8,
+                image::Rgba([255, 0, 0, 255]),
+            ))
+        } else {
+            Err(AppError::Export("simulated decode failure".into()))
+        }
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+fn partial_snapshot(fail_at: usize) -> ExportSnapshot {
+    ExportSnapshot {
+        source: Box::new(PartialSource {
+            fail_at,
+            delays: vec![10, 10, 10],
+        }),
+        layers: Vec::new(),
+        frame_indices: vec![0, 1, 2],
+        delays: vec![10, 10, 10],
+        still_frame: None,
+    }
+}
+
+/// E2: a failed export must not leave a partial/corrupt file at the user's
+/// chosen output path.  export_gif creates the file up front and writes two
+/// good frames before the third errors; run_export must remove it.
+#[test]
+fn run_export_removes_output_file_on_failure() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output_path = dir.path().join("partial.gif");
+    let mut snapshot = partial_snapshot(2);
+
+    let result = run_export(
+        &mut snapshot,
+        &animated_gif_settings(),
+        &output_path,
+        |_| {},
+    );
+    assert!(result.is_err(), "export should fail on the third frame");
+    assert!(
+        !output_path.exists(),
+        "failed export must not leave a partial output file behind"
+    );
+}
+
+/// Control for the removal test: the same stub source with no failure
+/// produces (and keeps) a valid output file via run_export.
+#[test]
+fn run_export_keeps_output_file_on_success() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output_path = dir.path().join("full.gif");
+    let mut snapshot = partial_snapshot(3);
+
+    run_export(
+        &mut snapshot,
+        &animated_gif_settings(),
+        &output_path,
+        |_| {},
+    )
+    .unwrap();
+    let result = GifData::open(&output_path).unwrap();
+    assert_eq!(result.frame_count(), 3);
+}
+
+/// T1(a): the placeholder reports the seeded metadata but rejects pixel
+/// fetches with "export in progress".
+#[test]
+fn exporting_placeholder_reports_seeded_metadata_and_rejects_frame_fetches() {
+    ensure_test_gif();
+    let gif = GifData::open(&fixture_path()).unwrap();
+    let mut placeholder = ExportingPlaceholder::for_source(&gif);
+
+    assert_eq!(placeholder.frame_count(), gif.frame_count());
+    assert_eq!(placeholder.dimensions(), gif.dimensions());
+    assert_eq!(placeholder.delays(), gif.delays());
+    assert_eq!(placeholder.source_path(), fixture_path());
+
+    let err = placeholder.get_frame(0).unwrap_err();
+    assert!(
+        err.to_string().contains("export in progress"),
+        "expected 'export in progress', got: {err}"
+    );
+}
+
+/// T1(b): take_source_for_export installs the placeholder and hands out a
+/// complete snapshot; restore_source_if_placeholder puts the real source back.
+#[test]
+fn take_source_for_export_installs_placeholder_and_restore_puts_it_back() {
+    ensure_test_gif();
+    let (mut project, _meta) = Project::open(&fixture_path()).unwrap();
+
+    let snapshot = project
+        .take_source_for_export(&animated_gif_settings())
+        .unwrap();
+
+    // Placeholder installed: metadata stays sane, pixel fetches fail.
+    assert_eq!(project.visible_frame_count(), 3);
+    assert!(project.source.get_frame(0).is_err());
+
+    // The snapshot carries the real source and the frame plan.
+    assert_eq!(snapshot.frame_indices, vec![0, 1, 2]);
+    assert_eq!(snapshot.delays, vec![10, 10, 10]);
+    assert!(snapshot.still_frame.is_none());
+
+    project.restore_source_if_placeholder(snapshot.source);
+    assert!(
+        project.source.get_frame(0).is_ok(),
+        "real source must be restored after the export"
+    );
+}
+
+/// T1(b): if a different REAL source was installed mid-export (simulated
+/// concurrent open), restore must not clobber it.
+#[test]
+fn restore_source_if_placeholder_does_not_clobber_a_new_source() {
+    ensure_test_gif();
+    let (mut project, _meta) = Project::open(&fixture_path()).unwrap();
+
+    let snapshot = project
+        .take_source_for_export(&animated_gif_settings())
+        .unwrap();
+
+    // Simulate the user opening a different file mid-export: a real source
+    // (recognisable by its frame count) replaces the placeholder.
+    struct Marker;
+    impl FrameSource for Marker {
+        fn frame_count(&self) -> usize {
+            99
+        }
+        fn dimensions(&self) -> (u32, u32) {
+            (1, 1)
+        }
+        fn delays(&self) -> &[u16] {
+            &[10]
+        }
+        fn source_path(&self) -> &std::path::Path {
+            std::path::Path::new("")
+        }
+        fn get_frame(&mut self, _index: usize) -> Result<image::RgbaImage, AppError> {
+            Ok(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([0, 0, 0, 255]),
+            ))
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
+    project.source = Box::new(Marker);
+
+    project.restore_source_if_placeholder(snapshot.source);
+    assert_eq!(
+        project.source.frame_count(),
+        99,
+        "restore must not clobber a source installed mid-export"
+    );
+}
+
+/// T1(c): a second take while the placeholder is installed fails fast with
+/// "export already in progress" instead of swapping out the placeholder.
+#[test]
+fn take_source_for_export_errors_when_export_already_in_progress() {
+    ensure_test_gif();
+    let (mut project, _meta) = Project::open(&fixture_path()).unwrap();
+
+    let snapshot = project
+        .take_source_for_export(&animated_gif_settings())
+        .unwrap();
+
+    let err = project
+        .take_source_for_export(&animated_gif_settings())
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("export already in progress"),
+        "expected re-entrancy rejection, got: {err}"
+    );
+
+    // The in-flight export's placeholder is untouched, so its restore still
+    // works.
+    assert!(project.source.get_frame(0).is_err());
+    project.restore_source_if_placeholder(snapshot.source);
+    assert!(project.source.get_frame(0).is_ok());
+}
+
+/// An out-of-bounds still-image frame index must fail BEFORE the source is
+/// swapped out, leaving the project fully usable.
+#[test]
+fn take_source_for_export_rejects_out_of_bounds_still_frame_before_swapping() {
+    ensure_test_gif();
+    let (mut project, _meta) = Project::open(&fixture_path()).unwrap();
+
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: None,
+        frame_index: Some(99),
+    };
+    let err = project.take_source_for_export(&settings).unwrap_err();
+    assert!(
+        err.to_string().contains("out of bounds"),
+        "expected out-of-bounds rejection, got: {err}"
+    );
+    // The source was not swapped: frames are still fetchable.
+    assert!(project.source.get_frame(0).is_ok());
+}
+
+/// Still-image exports resolve `frame_index` (logical) through deleted
+/// frames to the mapped source index at snapshot time.
+#[test]
+fn take_source_for_export_resolves_still_frame_through_deleted_frames() {
+    ensure_test_gif();
+    let (mut project, _meta) = Project::open(&fixture_path()).unwrap();
+    project.delete_frames(&[1]).unwrap();
+
+    let settings = ExportSettings {
+        format: ExportFormat::Png,
+        quality: 80,
+        resize: None,
+        frame_index: Some(1),
+    };
+    let snapshot = project.take_source_for_export(&settings).unwrap();
+    assert_eq!(
+        snapshot.still_frame,
+        Some((2, 1)),
+        "logical frame 1 must map to source frame 2 after deleting source 1"
+    );
+    assert_eq!(snapshot.frame_indices, vec![0, 2]);
+}
+
+#[test]
+fn export_image_rejects_gif_format() {
+    ensure_test_gif();
+    let mut gif = GifData::open(&fixture_path()).unwrap();
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let output_path = output.path().with_extension("gif");
+    let settings = ExportSettings {
+        format: ExportFormat::Gif,
+        quality: 80,
+        resize: None,
+        frame_index: None,
+    };
+    let result = export_image(&mut gif, &[], &settings, &output_path, 0, 0);
+    assert!(result.is_err());
 }

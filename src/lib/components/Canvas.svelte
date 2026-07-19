@@ -1,40 +1,10 @@
 <script lang="ts">
   import { project } from '$lib/stores/project.svelte';
   import { ui } from '$lib/stores/ui.svelte';
-  import { renderFrame } from '$lib/utils/canvas-renderer';
+  import { renderFrame, interpolateKeyframes, onFontsReady } from '$lib/utils/canvas-renderer';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import * as cmd from '$lib/commands';
   import type { LayerInfo, Keyframe } from '$lib/types';
-
-  function interpolateKeyframes(
-    keyframes: Keyframe[],
-    frameIndex: number,
-  ): { position: [number, number]; opacity: number } | null {
-    if (!keyframes || keyframes.length === 0) return null;
-    if (frameIndex <= keyframes[0].frame) {
-      return { position: keyframes[0].position, opacity: keyframes[0].opacity };
-    }
-    const last = keyframes[keyframes.length - 1];
-    if (frameIndex >= last.frame) {
-      return { position: last.position, opacity: last.opacity };
-    }
-    for (let i = 0; i < keyframes.length - 1; i++) {
-      const a = keyframes[i];
-      const b = keyframes[i + 1];
-      if (frameIndex >= a.frame && frameIndex <= b.frame) {
-        const span = b.frame - a.frame;
-        const t = span > 0 ? (frameIndex - a.frame) / span : 0;
-        return {
-          position: [
-            a.position[0] + t * (b.position[0] - a.position[0]),
-            a.position[1] + t * (b.position[1] - a.position[1]),
-          ],
-          opacity: a.opacity + t * (b.opacity - a.opacity),
-        };
-      }
-    }
-    return { position: last.position, opacity: last.opacity };
-  }
 
   function upsertKeyframe(keyframes: Keyframe[], kf: Keyframe): Keyframe[] {
     const filtered = keyframes.filter((k) => k.frame !== kf.frame);
@@ -64,6 +34,16 @@
   let handleOrigScaleY = $state(1);
   let handleOrigSkewX = $state(0);
   let handleOrigSkewY = $state(0);
+  let wasResizingAllLayers = $state(false);
+
+  // Snapshot of every layer's scale at corner-gesture start. The Alt
+  // "resize all layers" mode assigns absolute values (snapshot × ratio) on
+  // each pointermove so repeated moves don't compound exponentially.
+  let resizeSnapshot: Map<string, { scale_x: number; scale_y: number }> | null = null;
+  // Net scale ratio of the current gesture relative to its start, persisted
+  // through the backend's scale_all_layers (which multiplies) on pointerup.
+  let resizeAllRatioX = 1;
+  let resizeAllRatioY = 1;
 
   // Initialise the 2D context once the canvas element is bound
   $effect(() => {
@@ -71,6 +51,13 @@
       ctx = canvas.getContext('2d');
     }
   });
+
+  // Bumped when a bundled FontFace finishes loading (canvas-renderer has
+  // already dropped the stale fallback-font text rasters by then); the
+  // render effect below reads it so text repaints with the real typeface.
+  let fontsVersion = $state(0);
+  // onFontsReady returns an unsubscribe function, used as effect cleanup.
+  $effect(() => onFontsReady(() => { fontsVersion += 1; }));
 
   // Re-render whenever the current frame index or layer list changes.
   //
@@ -80,12 +67,30 @@
     const frame = ui.currentFrame;
     const layers = project.layers;
     const previewExport = ui.previewExport;
+    // Depend on fontsVersion so a completed FontFace load repaints the frame.
+    void fontsVersion;
 
     if (!ctx || !project.metadata) return;
 
     let stale = false;
 
-    if (previewExport) {
+    // Automatically use backend compositor when animated GIF layers are present,
+    // since the frontend can't correctly synchronize GIF frames with the timeline
+    // or apply transforms to browser-loaded animated GIFs.
+    const hasAnimatedLayers = layers.some(l => l.is_animated);
+
+    // While a drag/resize gesture is in progress every pointermove reassigns
+    // project.layers, so routing each re-run through the backend compositor
+    // would issue an unthrottled IPC composite per pointer event. During the
+    // gesture, render client-side instead — the client path draws only the
+    // FIRST frame of animated overlay layers, which is the accepted
+    // gesture-time tradeoff — then let the effect re-run for one final
+    // backend composite on gesture end (isDragging/activeHandle are $state,
+    // so clearing them in onPointerUp re-triggers this effect).
+    const gestureActive = isDragging || activeHandle !== null;
+    const useBackendCompositor = (previewExport || hasAnimatedLayers) && !gestureActive;
+
+    if (useBackendCompositor) {
       cmd.renderComposite(frame).then((dataUrl) => {
         if (stale || !ctx) return;
         const img = new Image();
@@ -96,11 +101,23 @@
           ctx.drawImage(img, 0, 0, width, height);
         };
         img.src = convertFileSrc(dataUrl);
+      }).catch((err) => {
+        // "export in progress" is a designed condition: the backend refuses
+        // uncached frame loads while exporting. Keep showing the last
+        // rendered frame instead of raising an error toast.
+        if (!stale && !String(err).includes('export in progress')) {
+          ui.showError(`Failed to render frame: ${err}`);
+        }
       });
     } else {
       project.getFramePath(frame).then((framePath) => {
         if (stale || !ctx) return;
         renderFrame(ctx, framePath, layers, frame);
+      }).catch((err) => {
+        // Same designed condition as above — no toast during an export.
+        if (!stale && !String(err).includes('export in progress')) {
+          ui.showError(`Failed to load frame: ${err}`);
+        }
       });
     }
 
@@ -123,30 +140,58 @@
     ];
   }
 
+  // Combined rotation × scale/skew matrix, identical to the one applied by
+  // canvas-renderer.ts and the backend compositor:
+  //   dst_x = a*src_x + c*src_y + tx
+  //   dst_y = b*src_x + d*src_y + ty
+  function getLayerMatrix(layer: LayerInfo): { a: number; b: number; c: number; d: number } {
+    const theta = (layer.rotation ?? 0) * (Math.PI / 180);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
+    return {
+      a: cosT * sx - sinT * ky,
+      b: sinT * sx + cosT * ky,
+      c: cosT * kx - sinT * sy,
+      d: sinT * kx + cosT * sy,
+    };
+  }
+
   function getTransformedCorners(layer: LayerInfo): [number, number][] {
     const interp = interpolateKeyframes(layer.keyframes, ui.currentFrame);
     const [tx, ty] = interp ? interp.position : layer.position;
-    const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
+
+    if (layer.layer_type === 'flare') {
+      const hs = 60;
+      return [
+        [tx - hs, ty - hs],
+        [tx + hs, ty - hs],
+        [tx - hs, ty + hs],
+        [tx + hs, ty + hs],
+      ];
+    }
 
     let w: number, h: number;
     if (layer.layer_type === 'image') {
-      w = layer.source_width ?? 0;
-      h = layer.source_height ?? 0;
+      w = layer.source_width ?? 100;
+      h = layer.source_height ?? 100;
     } else {
       const fontSize = layer.font_size ?? 48;
       w = (layer.text?.length ?? 1) * fontSize * 0.6;
       h = fontSize;
     }
 
+    const { a, b, c, d } = getLayerMatrix(layer);
     return [
       [tx, ty],
-      [sx * w + tx, ky * w + ty],
-      [kx * h + tx, sy * h + ty],
-      [sx * w + kx * h + tx, ky * w + sy * h + ty],
+      [a * w + tx, b * w + ty],
+      [c * h + tx, d * h + ty],
+      [a * w + c * h + tx, b * w + d * h + ty],
     ];
   }
 
   function getHandlePositions(layer: LayerInfo): { type: HandleType; x: number; y: number }[] {
+    if (layer.layer_type === 'flare') return [];
     const [tl, tr, bl, br] = getTransformedCorners(layer);
     const mid = (a: [number, number], b: [number, number]): [number, number] =>
       [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -185,14 +230,21 @@
 
       const interp = interpolateKeyframes(layer.keyframes, frame);
       const [tx, ty] = interp ? interp.position : layer.position;
-      const { scale_x: sx, scale_y: sy, skew_x: kx, skew_y: ky } = layer;
 
-      // Inverse of [[sx, kx], [ky, sy]]
-      const det = sx * sy - kx * ky;
+      if (layer.layer_type === 'flare') {
+        const dx = x - tx;
+        const dy = y - ty;
+        if (dx * dx + dy * dy <= 60 * 60) return layer;
+        continue;
+      }
+
+      // Inverse of the full rotation × scale/skew matrix [[a, c], [b, d]]
+      const { a, b, c, d } = getLayerMatrix(layer);
+      const det = a * d - b * c;
       if (Math.abs(det) < 1e-9) continue;
 
-      const localX = (sy * (x - tx) - kx * (y - ty)) / det;
-      const localY = (-ky * (x - tx) + sx * (y - ty)) / det;
+      const localX = (d * (x - tx) - c * (y - ty)) / det;
+      const localY = (-b * (x - tx) + a * (y - ty)) / det;
 
       let w: number, h: number;
       if (layer.layer_type === 'image') {
@@ -228,6 +280,11 @@
       handleOrigScaleY = layer.scale_y;
       handleOrigSkewX = layer.skew_x;
       handleOrigSkewY = layer.skew_y;
+      resizeSnapshot = new Map(
+        project.layers.map((l) => [l.id, { scale_x: l.scale_x, scale_y: l.scale_y }]),
+      );
+      resizeAllRatioX = 1;
+      resizeAllRatioY = 1;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       return;
     }
@@ -271,21 +328,57 @@
         const rawSx = handleOrigScaleX + dx / w;
         const rawSy = handleOrigScaleY + dy / h;
 
+        // Track if Alt was held for onPointerUp
+        wasResizingAllLayers = e.altKey;
+
+        // New absolute scale for the selected layer, and the net ratio of
+        // this gesture relative to its start (used for the Alt all-layers
+        // mode). Both are derived from the constant gesture-start values so
+        // every pointermove is idempotent.
+        let selScaleX: number;
+        let selScaleY: number;
+        let ratioX: number;
+        let ratioY: number;
+
         if (e.shiftKey) {
-          project.layers = project.layers.map((l) =>
-            l.id === handleLayerId
-              ? { ...l, scale_x: rawSx, scale_y: rawSy }
-              : l,
-          );
+          // Shift: free-form resize (non-uniform)
+          selScaleX = rawSx;
+          selScaleY = rawSy;
+          ratioX = handleOrigScaleX !== 0 ? rawSx / handleOrigScaleX : 1;
+          ratioY = handleOrigScaleY !== 0 ? rawSy / handleOrigScaleY : 1;
         } else {
+          // Default: uniform resize (maintain aspect ratio)
           const origDiag = Math.sqrt(handleOrigScaleX ** 2 + handleOrigScaleY ** 2);
           const newDiag = Math.sqrt(rawSx ** 2 + rawSy ** 2);
           const ratio = origDiag > 0 ? newDiag / origDiag : 1;
-          project.layers = project.layers.map((l) =>
-            l.id === handleLayerId
-              ? { ...l, scale_x: handleOrigScaleX * ratio, scale_y: handleOrigScaleY * ratio }
-              : l,
-          );
+          selScaleX = handleOrigScaleX * ratio;
+          selScaleY = handleOrigScaleY * ratio;
+          ratioX = ratio;
+          ratioY = ratio;
+        }
+
+        const snap = resizeSnapshot;
+        if (e.altKey && snap) {
+          // Alt: resize all layers. Assign absolute values from the
+          // gesture-start snapshot so repeated moves don't compound.
+          resizeAllRatioX = ratioX;
+          resizeAllRatioY = ratioY;
+          project.layers = project.layers.map((l) => {
+            const s = snap.get(l.id);
+            return s ? { ...l, scale_x: s.scale_x * ratioX, scale_y: s.scale_y * ratioY } : l;
+          });
+        } else {
+          // Resize only the selected layer, restoring any other layers an
+          // earlier Alt move within this gesture may have scaled.
+          project.layers = project.layers.map((l) => {
+            if (l.id === handleLayerId) {
+              return { ...l, scale_x: selScaleX, scale_y: selScaleY };
+            }
+            const s = snap?.get(l.id);
+            return s && (l.scale_x !== s.scale_x || l.scale_y !== s.scale_y)
+              ? { ...l, scale_x: s.scale_x, scale_y: s.scale_y }
+              : l;
+          });
         }
       } else {
         if (activeHandle === 'top' || activeHandle === 'bottom') {
@@ -320,17 +413,45 @@
 
   async function onPointerUp(_e: PointerEvent) {
     if (activeHandle && handleLayerId) {
-      const layer = project.layers.find((l) => l.id === handleLayerId);
-      if (layer) {
-        await project.updateLayer(handleLayerId, {
-          scale_x: layer.scale_x,
-          scale_y: layer.scale_y,
-          skew_x: layer.skew_x,
-          skew_y: layer.skew_y,
-        });
+      if (wasResizingAllLayers) {
+        // Alt was held: persist the whole gesture as ONE history entry via
+        // the backend's scale_all_layers, which multiplies current scales by
+        // the given factors. Revert local layers to the gesture-start
+        // snapshot first, then replace them with the backend's result.
+        const snap = resizeSnapshot;
+        if (snap) {
+          project.layers = project.layers.map((l) => {
+            const s = snap.get(l.id);
+            return s ? { ...l, scale_x: s.scale_x, scale_y: s.scale_y } : l;
+          });
+        }
+        if (resizeAllRatioX !== 1 || resizeAllRatioY !== 1) {
+          try {
+            await project.scaleAllLayers(resizeAllRatioX, resizeAllRatioY);
+          } catch (err) {
+            ui.showError(`Failed to resize layers: ${err}`);
+          }
+        }
+      } else {
+        // Normal resize: persist only the selected layer
+        const layer = project.layers.find((l) => l.id === handleLayerId);
+        if (layer) {
+          try {
+            await project.updateLayer(handleLayerId, {
+              scale_x: layer.scale_x,
+              scale_y: layer.scale_y,
+              skew_x: layer.skew_x,
+              skew_y: layer.skew_y,
+            });
+          } catch (err) {
+            ui.showError(`Failed to resize layer: ${err}`);
+          }
+        }
       }
       activeHandle = null;
       handleLayerId = null;
+      wasResizingAllLayers = false;
+      resizeSnapshot = null;
       return;
     }
 

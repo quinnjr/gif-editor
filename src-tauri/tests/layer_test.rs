@@ -29,6 +29,23 @@ fn text_layer_default_values() {
 }
 
 #[test]
+fn text_layer_new_with_multibyte_text_does_not_panic() {
+    // Byte 20 lands inside a multi-byte char here; byte slicing would panic.
+    let text = "a🔥🔥🔥🔥🔥🔥".to_string();
+    let layer = TextLayer::new(text.clone());
+    assert_eq!(layer.text, text);
+    // Name is truncated to at most 20 chars of the text, char-boundary safe.
+    assert_eq!(layer.name, format!("Text: {text}"));
+}
+
+#[test]
+fn text_layer_new_truncates_long_multibyte_text_by_chars() {
+    let text = "🔥".repeat(30);
+    let layer = TextLayer::new(text);
+    assert_eq!(layer.name, format!("Text: {}", "🔥".repeat(20)));
+}
+
+#[test]
 fn layer_serializes_to_json() {
     let layer = Layer::Text(TextLayer::new("Meme".to_string()));
     let json = serde_json::to_string(&layer).unwrap();
@@ -88,6 +105,78 @@ fn interpolate_clamps_before_and_after() {
     ];
     assert_eq!(interpolate_keyframes(&kfs, 0), Some(((10.0, 10.0), 0.8)));
     assert_eq!(interpolate_keyframes(&kfs, 20), Some(((20.0, 20.0), 0.2)));
+}
+
+// ---------------------------------------------------------------------------
+// Rust <-> TypeScript parity golden vectors
+// ---------------------------------------------------------------------------
+// The exact same keyframe sets, evaluation frames, and expected literals are
+// asserted against the TS interpolateKeyframes twin in
+// src/tests/canvas-renderer.test.ts.  If this test changes, change that one
+// identically.
+
+#[test]
+fn interpolate_golden_vectors_match_typescript() {
+    // Keyframe set A: three keyframes at frames 0 / 10 / 20.
+    let a = vec![
+        Keyframe {
+            frame: 0,
+            position: (10.0, 20.0),
+            opacity: 1.0,
+        },
+        Keyframe {
+            frame: 10,
+            position: (30.0, 40.0),
+            opacity: 0.5,
+        },
+        Keyframe {
+            frame: 20,
+            position: (110.0, 140.0),
+            opacity: 0.9,
+        },
+    ];
+    // Evaluated at frames [0, 3, 5, 10, 15, 20, 25]:
+    assert_eq!(interpolate_keyframes(&a, 0), Some(((10.0, 20.0), 1.0)));
+    assert_eq!(interpolate_keyframes(&a, 3), Some(((16.0, 26.0), 0.85)));
+    assert_eq!(interpolate_keyframes(&a, 5), Some(((20.0, 30.0), 0.75)));
+    assert_eq!(interpolate_keyframes(&a, 10), Some(((30.0, 40.0), 0.5)));
+    assert_eq!(interpolate_keyframes(&a, 15), Some(((70.0, 90.0), 0.7)));
+    assert_eq!(interpolate_keyframes(&a, 20), Some(((110.0, 140.0), 0.9)));
+    assert_eq!(interpolate_keyframes(&a, 25), Some(((110.0, 140.0), 0.9)));
+
+    // Single-keyframe set: constant everywhere.
+    let single = vec![Keyframe {
+        frame: 10,
+        position: (30.0, 40.0),
+        opacity: 0.5,
+    }];
+    for frame in [0, 3, 5, 10, 15, 20, 25] {
+        assert_eq!(
+            interpolate_keyframes(&single, frame),
+            Some(((30.0, 40.0), 0.5))
+        );
+    }
+
+    // Empty set: no interpolation result at any frame.
+    for frame in [0, 3, 5, 10, 15, 20, 25] {
+        assert_eq!(interpolate_keyframes(&[], frame), None);
+    }
+
+    // Clamp below: keyframes starting at frame 5, evaluated at frame 0,
+    // yield the first keyframe's values.
+    let clamp = vec![
+        Keyframe {
+            frame: 5,
+            position: (50.0, 60.0),
+            opacity: 0.4,
+        },
+        Keyframe {
+            frame: 15,
+            position: (90.0, 100.0),
+            opacity: 0.8,
+        },
+    ];
+    assert_eq!(interpolate_keyframes(&clamp, 0), Some(((50.0, 60.0), 0.4)));
 }
 
 // ---------------------------------------------------------------------------

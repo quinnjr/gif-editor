@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -54,18 +56,24 @@ pub fn interpolate_keyframes(
 pub struct ImageLayer {
     pub id: Uuid,
     pub name: String,
+    /// Pixel data is Arc-shared: cloning a layer (undo-history snapshots,
+    /// duplicate_layer) copies a pointer, not the buffer.  This is sound
+    /// because decoded pixels are immutable after construction — transforms
+    /// (flip, scale, skew) only touch the scalar fields below.
     #[serde(skip)]
-    pub image_data: Option<image::RgbaImage>,
+    pub image_data: Option<Arc<image::RgbaImage>>,
     /// For animated GIF overlays: all decoded frames.  When non-empty the
     /// compositor picks `frames[(project_frame - range_start) % len]`
-    /// instead of `image_data`.
+    /// instead of `image_data`.  Arc-shared for the same reason as
+    /// `image_data`; frames are built once at decode and only read after.
     #[serde(skip)]
-    pub frames: Vec<image::RgbaImage>,
+    pub frames: Arc<Vec<image::RgbaImage>>,
     pub position: (f64, f64),
     pub scale_x: f64,
     pub scale_y: f64,
     pub skew_x: f64,
     pub skew_y: f64,
+    pub rotation: f64,
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
@@ -73,6 +81,8 @@ pub struct ImageLayer {
     pub source_height: u32,
     pub source_path: Option<String>,
     pub keyframes: Vec<Keyframe>,
+    /// True if this layer has multiple frames (animated GIF overlay).
+    pub is_animated: bool,
 }
 
 impl ImageLayer {
@@ -81,12 +91,13 @@ impl ImageLayer {
             id: Uuid::new_v4(),
             name,
             image_data: None,
-            frames: Vec::new(),
+            frames: Arc::new(Vec::new()),
             position: (0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,
             skew_x: 0.0,
             skew_y: 0.0,
+            rotation: 0.0,
             opacity: 1.0,
             frame_range: (0, 0),
             visible: true,
@@ -94,10 +105,14 @@ impl ImageLayer {
             source_height: height,
             source_path: None,
             keyframes: Vec::new(),
+            is_animated: false,
         }
     }
 }
 
+// Adding a rasterisation-affecting field?  Update BOTH cache keys:
+// `RenderCacheKey` in src/text_renderer.rs and `textRasterKey` in
+// src/lib/utils/canvas-renderer.ts, or stale rasters will be served.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextLayer {
     pub id: Uuid,
@@ -107,11 +122,14 @@ pub struct TextLayer {
     pub font_size: f64,
     pub color: [u8; 4],
     pub stroke: Option<Stroke>,
+    pub text_align: String,
+    pub max_width: Option<f64>,
     pub position: (f64, f64),
     pub scale_x: f64,
     pub scale_y: f64,
     pub skew_x: f64,
     pub skew_y: f64,
+    pub rotation: f64,
     pub opacity: f64,
     pub frame_range: (usize, usize),
     pub visible: bool,
@@ -120,7 +138,9 @@ pub struct TextLayer {
 
 impl TextLayer {
     pub fn new(text: String) -> Self {
-        let name = format!("Text: {}", &text[..text.len().min(20)]);
+        // Truncate by characters, not bytes: byte slicing panics when the
+        // cut lands inside a multi-byte UTF-8 sequence (e.g. emoji).
+        let name = format!("Text: {}", text.chars().take(20).collect::<String>());
         Self {
             id: Uuid::new_v4(),
             name,
@@ -132,11 +152,14 @@ impl TextLayer {
                 color: [0, 0, 0, 255],
                 width: 2.0,
             }),
+            text_align: "center".to_string(),
+            max_width: None,
             position: (0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,
             skew_x: 0.0,
             skew_y: 0.0,
+            rotation: 0.0,
             opacity: 1.0,
             frame_range: (0, 0),
             visible: true,
@@ -146,10 +169,48 @@ impl TextLayer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlareLayer {
+    pub id: Uuid,
+    pub name: String,
+    pub position: (f64, f64),
+    pub intensity: f64,
+    pub scale: f64,
+    pub pulse_speed: f64,
+    pub frame_range: (usize, usize),
+    pub visible: bool,
+    pub opacity: f64,
+    pub keyframes: Vec<Keyframe>,
+}
+
+impl FlareLayer {
+    pub fn new() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Solar Flare".to_string(),
+            position: (0.0, 0.0),
+            intensity: 1.0,
+            scale: 1.0,
+            pulse_speed: 0.15,
+            frame_range: (0, 0),
+            visible: true,
+            opacity: 1.0,
+            keyframes: Vec::new(),
+        }
+    }
+}
+
+impl Default for FlareLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Layer {
     Image(ImageLayer),
     Text(TextLayer),
+    Flare(FlareLayer),
 }
 
 impl Layer {
@@ -157,6 +218,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.id,
             Layer::Text(l) => l.id,
+            Layer::Flare(l) => l.id,
         }
     }
 
@@ -164,6 +226,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.visible,
             Layer::Text(l) => l.visible,
+            Layer::Flare(l) => l.visible,
         }
     }
 
@@ -171,6 +234,7 @@ impl Layer {
         match self {
             Layer::Image(l) => l.frame_range,
             Layer::Text(l) => l.frame_range,
+            Layer::Flare(l) => l.frame_range,
         }
     }
 
@@ -178,6 +242,46 @@ impl Layer {
         match self {
             Layer::Image(l) => &l.keyframes,
             Layer::Text(l) => &l.keyframes,
+            Layer::Flare(l) => &l.keyframes,
         }
+    }
+
+    pub fn scale_x_val(&self) -> f64 {
+        match self {
+            Layer::Image(l) => l.scale_x,
+            Layer::Text(l) => l.scale_x,
+            // Flare layers are not affine-transformed; render_flare() reads
+            // FlareLayer::scale directly.
+            Layer::Flare(_) => 1.0,
+        }
+    }
+
+    pub fn scale_y_val(&self) -> f64 {
+        match self {
+            Layer::Image(l) => l.scale_y,
+            Layer::Text(l) => l.scale_y,
+            // Flare layers are not affine-transformed; render_flare() reads
+            // FlareLayer::scale directly.
+            Layer::Flare(_) => 1.0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flare_layer_new_has_correct_defaults() {
+        let layer = FlareLayer::new();
+        assert_eq!(layer.intensity, 1.0);
+        assert_eq!(layer.scale, 1.0);
+        assert_eq!(layer.pulse_speed, 0.15);
+        assert!(layer.visible);
+        assert_eq!(layer.opacity, 1.0);
+        assert!(layer.keyframes.is_empty());
+        assert_eq!(layer.position, (0.0, 0.0));
+        assert_eq!(layer.frame_range, (0, 0));
+        assert_eq!(layer.name, "Solar Flare");
     }
 }

@@ -4,8 +4,12 @@
 //! Stroke outlines are produced by drawing the text at a ring of
 //! offset positions (with the stroke colour) before drawing the fill
 //! text on top.  The output is a tight bounding-box image sized to
-//! exactly the rendered text; positioning onto a frame canvas is the
-//! compositor's responsibility.
+//! exactly the rendered text plus a [`stroke_pad`] margin on every side
+//! for stroke overflow; positioning onto a frame canvas is the
+//! compositor's responsibility (see [`stroke_pad`] for the anchoring
+//! contract).
+
+use std::sync::{Arc, Mutex, OnceLock};
 
 use ab_glyph::{Font, FontArc, Glyph, PxScale, ScaleFont};
 use image::{Rgba, RgbaImage};
@@ -14,59 +18,209 @@ use crate::error::AppError;
 use crate::fonts::load_font;
 use crate::layer::TextLayer;
 
+// ---------------------------------------------------------------------------
+// Render cache
+// ---------------------------------------------------------------------------
+
+/// Cache key covering every field of [`TextLayer`] that affects the
+/// rasterised pixels.  Transform fields (position, scale, skew, rotation,
+/// opacity, keyframes) are applied by the compositor AFTER rasterisation
+/// and deliberately excluded.  `f64` fields are keyed by bit pattern so
+/// NaN/−0.0 edge cases stay well-defined.
+///
+/// Keep in sync with `textRasterKey` in `src/lib/utils/canvas-renderer.ts`:
+/// both keys must cover the same set of rasterisation-affecting fields.
+type RenderCacheKey = (
+    String,                 // text
+    String,                 // font_family
+    u64,                    // font_size.to_bits()
+    [u8; 4],                // color
+    Option<([u8; 4], u64)>, // stroke (color, width.to_bits())
+    String,                 // text_align
+    Option<u64>,            // max_width.map(f64::to_bits)
+);
+
+/// Maximum number of rasterised text images retained.  Small and capped so
+/// the cache cannot grow without bound; entries are evicted LRU-first.
+const RENDER_CACHE_CAPACITY: usize = 16;
+
+/// Cache storage: (key, image) entries ordered most-recently-used first.
+/// A Vec is used instead of a HashMap because the capacity is tiny (16):
+/// a linear key scan is cheaper than hashing and keeps true LRU ordering
+/// trivial.
+type RenderCacheEntries = Vec<(RenderCacheKey, Arc<RgbaImage>)>;
+
+/// LRU cache of rasterised text images, most-recently-used first.
+fn render_cache() -> &'static Mutex<RenderCacheEntries> {
+    static CACHE: OnceLock<Mutex<RenderCacheEntries>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(Vec::with_capacity(RENDER_CACHE_CAPACITY)))
+}
+
+/// Empty the process-wide render cache.
+///
+/// Test-only hook: integration tests call this so `Arc::ptr_eq` cache-hit
+/// assertions start from a known-empty cache instead of racing other tests
+/// for the 16 LRU slots.  `#[doc(hidden)] pub` rather than `pub(crate)`
+/// because integration tests link the library from outside the crate.
+#[doc(hidden)]
+pub fn clear_render_cache() {
+    render_cache().lock().unwrap().clear();
+}
+
+fn render_cache_key(layer: &TextLayer) -> RenderCacheKey {
+    (
+        layer.text.clone(),
+        layer.font_family.clone(),
+        layer.font_size.to_bits(),
+        layer.color,
+        layer.stroke.as_ref().map(|s| (s.color, s.width.to_bits())),
+        layer.text_align.clone(),
+        layer.max_width.map(f64::to_bits),
+    )
+}
+
+/// Padding, in pixels, reserved on every side of the glyph box for
+/// stroke overflow.
+///
+/// The rendered image places the glyph box origin at `(pad, pad)`, so
+/// callers that anchor the image top-left at the layer position must
+/// offset placement by `-pad` on both axes for the glyph box (not the
+/// pad edge) to land on the layer position — matching the preview,
+/// which draws text at the transform origin with the stroke
+/// overflowing beyond it.
+pub fn stroke_pad(layer: &TextLayer) -> u32 {
+    layer
+        .stroke
+        .as_ref()
+        .map(|s| s.width.ceil() as u32 + 2)
+        .unwrap_or(0)
+}
+
+/// Convert a CSS-pixel em size (what `ctx.font = "48px ..."` means in
+/// the preview) to the `PxScale` ab_glyph expects.
+///
+/// `PxScale` is the ascent−descent height in pixels, which for most
+/// fonts is larger than one em.  Scaling by
+/// `height_unscaled / units_per_em` makes `font_size` mean "px per em",
+/// mirroring `Font::pt_to_px_scale` without the pt→px factor.
+fn css_px_scale(font: &FontArc, font_size: f32) -> Result<PxScale, AppError> {
+    let units_per_em = font
+        .units_per_em()
+        .ok_or_else(|| AppError::Font("font has an invalid units_per_em".to_string()))?;
+    Ok(PxScale::from(
+        font_size * font.height_unscaled() / units_per_em,
+    ))
+}
+
 /// Render `layer` to an RGBA image.
 ///
 /// Returns a 1×1 transparent image for empty text so that callers
 /// never have to handle a zero-dimension surface.
-pub fn render_text(layer: &TextLayer) -> Result<RgbaImage, AppError> {
+///
+/// Results are memoised in a small LRU cache keyed by every
+/// content-affecting field, so compositing the same text layer across many
+/// frames rasterises it once and hands out cheap [`Arc`] clones; only the
+/// per-frame position/opacity (applied later by the compositor) vary.
+pub fn render_text(layer: &TextLayer) -> Result<Arc<RgbaImage>, AppError> {
     if layer.text.is_empty() {
-        return Ok(RgbaImage::new(1, 1));
+        return Ok(Arc::new(RgbaImage::new(1, 1)));
     }
 
-    let font = load_font(&layer.font_family)?;
-    let scale = PxScale::from(layer.font_size as f32);
-
-    // --- measure the text extent ---
-    let (text_w, text_h, ascent) = measure_text(&font, &layer.text, scale);
-    if text_w == 0 || text_h == 0 {
-        return Ok(RgbaImage::new(1, 1));
-    }
-
-    // Extra padding around the glyph bounding box so strokes aren't clipped.
-    let stroke_pad = layer
-        .stroke
-        .as_ref()
-        .map(|s| s.width.ceil() as u32 + 2)
-        .unwrap_or(0);
-    let pad = stroke_pad;
-
-    let img_w = text_w + pad * 2;
-    let img_h = text_h + pad * 2;
-    let mut img = RgbaImage::new(img_w, img_h);
-
-    let x0 = pad as f32;
-    let y0 = pad as f32 + ascent;
-
-    // --- stroke pass (drawn first so fill sits on top) ---
-    if let Some(ref stroke) = layer.stroke {
-        let offsets = generate_stroke_offsets(stroke.width as f32);
-        let stroke_color = Rgba(stroke.color);
-        for (dx, dy) in &offsets {
-            draw_text_at(
-                &mut img,
-                &font,
-                &layer.text,
-                scale,
-                x0 + dx,
-                y0 + dy,
-                stroke_color,
-            );
+    let key = render_cache_key(layer);
+    {
+        let mut cache = render_cache().lock().unwrap();
+        if let Some(pos) = cache.iter().position(|(k, _)| *k == key) {
+            // Move the hit to the front (most recently used).
+            let entry = cache.remove(pos);
+            let img = Arc::clone(&entry.1);
+            cache.insert(0, entry);
+            return Ok(img);
         }
     }
 
-    // --- fill pass ---
-    let fill_color = Rgba(layer.color);
-    draw_text_at(&mut img, &font, &layer.text, scale, x0, y0, fill_color);
+    // Rasterise outside the lock so concurrent renders never serialise on
+    // glyph drawing (worst case: two threads render the same key once each).
+    let img = Arc::new(render_text_uncached(layer)?);
+
+    let mut cache = render_cache().lock().unwrap();
+    if !cache.iter().any(|(k, _)| *k == key) {
+        cache.insert(0, (key, Arc::clone(&img)));
+        cache.truncate(RENDER_CACHE_CAPACITY);
+    }
+    Ok(img)
+}
+
+/// Rasterise `layer` without consulting the cache.
+fn render_text_uncached(layer: &TextLayer) -> Result<RgbaImage, AppError> {
+    let font = load_font(&layer.font_family)?;
+    // Interpret font_size as a CSS-px em size, matching the preview's
+    // `ctx.font = `${fontSize}px ...``.
+    let scale = css_px_scale(&font, layer.font_size as f32)?;
+
+    // Named `pad` (mirroring the TS renderer) to avoid shadowing the
+    // `stroke_pad` fn it is computed from.
+    let pad = stroke_pad(layer);
+
+    // Wrap text into lines.
+    let lines = wrap_text(&font, &layer.text, scale, layer.max_width);
+    if lines.is_empty() {
+        return Ok(RgbaImage::new(1, 1));
+    }
+
+    let scaled = font.as_scaled(scale);
+    let ascent = scaled.ascent();
+    let descent = scaled.descent();
+    // Match the preview's line advance (canvas-renderer.ts):
+    // fontSize * 1.2 CSS px per line.
+    let line_height = layer.font_size as f32 * 1.2;
+
+    // Measure each line.
+    let line_widths: Vec<u32> = lines
+        .iter()
+        .map(|l| measure_text_width(&font, l, scale))
+        .collect();
+
+    let canvas_w = if let Some(mw) = layer.max_width {
+        mw.ceil() as u32 + pad * 2
+    } else {
+        *line_widths.iter().max().unwrap_or(&1) + pad * 2
+    };
+    // Tall enough for the last line's full ascent+descent even when it
+    // exceeds the 1.2 line advance (e.g. Anton is ~1.5 em tall).
+    let text_block_h = (lines.len() - 1) as f32 * line_height + (ascent - descent);
+    let canvas_h = text_block_h.ceil() as u32 + pad * 2;
+
+    let mut img = RgbaImage::new(canvas_w.max(1), canvas_h.max(1));
+    let pad = pad as f32;
+
+    for (i, line) in lines.iter().enumerate() {
+        let lw = line_widths[i] as f32;
+        let content_w = if let Some(mw) = layer.max_width {
+            mw as f32
+        } else {
+            lw
+        };
+        let x0 = match layer.text_align.as_str() {
+            "center" => pad + (content_w - lw) / 2.0,
+            "right" => pad + content_w - lw,
+            _ => pad, // "left" default
+        };
+        // The preview draws with textBaseline='top' at y = i * lineHeight;
+        // the em-box top sits `ascent` above the baseline, so placing the
+        // baseline at y + ascent aligns the em-box top with the preview's y.
+        let y0 = pad + i as f32 * line_height + ascent;
+
+        if let Some(ref stroke) = layer.stroke {
+            let offsets = generate_stroke_offsets(stroke.width as f32);
+            let stroke_color = Rgba(stroke.color);
+            for (dx, dy) in &offsets {
+                draw_text_at(&mut img, &font, line, scale, x0 + dx, y0 + dy, stroke_color);
+            }
+        }
+
+        let fill_color = Rgba(layer.color);
+        draw_text_at(&mut img, &font, line, scale, x0, y0, fill_color);
+    }
 
     Ok(img)
 }
@@ -75,18 +229,9 @@ pub fn render_text(layer: &TextLayer) -> Result<RgbaImage, AppError> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Measure the pixel dimensions of `text` at `scale`.
-///
-/// Returns `(width, height, ascent)` where ascent is the distance from
-/// the baseline to the top of the em square (used to position glyphs
-/// so the top of the image aligns with the top of the tallest glyph).
-fn measure_text(font: &FontArc, text: &str, scale: PxScale) -> (u32, u32, f32) {
+/// Measure the pixel width of `text` at `scale`.
+fn measure_text_width(font: &FontArc, text: &str, scale: PxScale) -> u32 {
     let scaled = font.as_scaled(scale);
-    let ascent = scaled.ascent();
-    let descent = scaled.descent(); // negative value
-
-    let height = (ascent - descent).ceil() as u32;
-
     let mut width: f32 = 0.0;
     let mut prev_glyph_id = None;
     for ch in text.chars() {
@@ -97,8 +242,43 @@ fn measure_text(font: &FontArc, text: &str, scale: PxScale) -> (u32, u32, f32) {
         width += scaled.h_advance(glyph_id);
         prev_glyph_id = Some(glyph_id);
     }
+    width.ceil() as u32
+}
 
-    (width.ceil() as u32, height, ascent)
+/// Split `text` into lines that each fit within `max_width` pixels.
+/// If `max_width` is None, returns a single line (the full text).
+fn wrap_text(font: &FontArc, text: &str, scale: PxScale, max_width: Option<f64>) -> Vec<String> {
+    let Some(max_w) = max_width else {
+        return vec![text.to_string()];
+    };
+    let max_w = max_w as f32;
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        let candidate = if current_line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current_line} {word}")
+        };
+        let w = measure_text_width(font, &candidate, scale);
+        if w as f32 <= max_w || current_line.is_empty() {
+            current_line = candidate;
+        } else {
+            // Current line is full; push it and start a new one.
+            if !current_line.is_empty() {
+                lines.push(current_line.clone());
+            }
+            current_line = word.to_string();
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// Rasterise `text` onto `img` with the top-left of the first glyph at

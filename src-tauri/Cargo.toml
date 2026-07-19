@@ -16,8 +16,9 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 gif = "0.13"
-image = { version = "0.25", features = ["gif", "png", "jpeg"] }
+image = { version = "0.25", features = ["gif", "png", "jpeg", "webp"] }
 ab_glyph = "0.2"
+base64 = "0.22"
 imagequant = "4"
 uuid = { version = "1", features = ["v4", "serde"] }
 lru = "0.16"

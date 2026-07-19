@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::export::{self, ExportSettings};
 use crate::layer::Stroke;
-use crate::project::{GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState};
+use crate::project::{GifMetadata, LayerInfo, LayerUpdate, Project, ProjectState, push_history};
 
 /// Open a media file (GIF, MP4, or WebM) and initialise project state.
 /// Returns metadata so the frontend can set up its frame timeline immediately.
@@ -23,17 +23,11 @@ pub async fn open_file(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let (project, metadata) = Project::open(Path::new(&path))?;
-    *state.lock().unwrap() = Some(project);
+    let mut guard = state.lock().unwrap();
+    guard.project = Some(project);
+    guard.history.clear();
+    guard.redo_stack.clear();
     Ok(metadata)
-}
-
-/// Backwards-compatible alias for `open_file`.
-#[tauri::command]
-pub async fn open_gif(
-    path: String,
-    state: State<'_, ProjectState>,
-) -> Result<GifMetadata, AppError> {
-    open_file(path, state).await
 }
 
 /// Return the filesystem path to a decoded PNG for `frame_index`.
@@ -46,7 +40,7 @@ pub async fn get_frame(
     state: State<'_, ProjectState>,
 ) -> Result<String, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.get_frame_png_path(frame_index)
 }
 
@@ -62,7 +56,8 @@ pub async fn add_image_layer(
     state: State<'_, ProjectState>,
 ) -> Result<(LayerInfo, Option<GifMetadata>), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.add_image_layer(&path)
 }
 
@@ -77,8 +72,21 @@ pub async fn add_text_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     Ok(project.add_text_layer(text, font_family, font_size, color, stroke))
+}
+
+/// Create a new solar flare layer at `position` (defaults to canvas centre).
+#[tauri::command]
+pub async fn add_flare_layer(
+    position: Option<(f64, f64)>,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    Ok(project.add_flare_layer(position))
 }
 
 /// Apply a partial update to the layer identified by `id`.
@@ -89,7 +97,8 @@ pub async fn update_layer(
     state: State<'_, ProjectState>,
 ) -> Result<LayerInfo, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.update_layer(id, changes)
 }
 
@@ -97,7 +106,8 @@ pub async fn update_layer(
 #[tauri::command]
 pub async fn remove_layer(id: Uuid, state: State<'_, ProjectState>) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.remove_layer(id)
 }
 
@@ -108,7 +118,8 @@ pub async fn reorder_layers(
     state: State<'_, ProjectState>,
 ) -> Result<(), AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.reorder_layers(ids)
 }
 
@@ -120,7 +131,7 @@ pub async fn render_composite(
     state: State<'_, ProjectState>,
 ) -> Result<String, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.render_composite(frame_index)
 }
 
@@ -128,7 +139,7 @@ pub async fn render_composite(
 #[tauri::command]
 pub async fn get_layers(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
     let guard = state.lock().unwrap();
-    let project = guard.as_ref().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_ref().ok_or(AppError::NoProject)?;
     Ok(project.get_layers())
 }
 
@@ -140,7 +151,8 @@ pub async fn delete_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.delete_frames(&indices)
 }
 
@@ -152,7 +164,8 @@ pub async fn restore_frames(
     state: State<'_, ProjectState>,
 ) -> Result<GifMetadata, AppError> {
     let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
     project.restore_frames(&source_indices)
 }
 
@@ -161,13 +174,16 @@ pub async fn restore_frames(
 #[tauri::command]
 pub async fn get_excluded_frames(state: State<'_, ProjectState>) -> Result<Vec<usize>, AppError> {
     let guard = state.lock().unwrap();
-    let project = guard.as_ref().ok_or(AppError::NoProject)?;
+    let project = guard.project.as_ref().ok_or(AppError::NoProject)?;
     Ok(project.get_excluded_frames())
 }
 
-/// Return the list of font families available to the text renderer.
+/// Return the bundled font families available to the text renderer.
+///
+/// No system font enumeration is performed; the list is the fixed set of
+/// fonts compiled into the binary.
 #[tauri::command]
-pub fn get_system_fonts() -> Vec<String> {
+pub fn get_available_fonts() -> Vec<String> {
     crate::fonts::list_available_fonts()
 }
 
@@ -176,6 +192,16 @@ pub fn get_system_fonts() -> Vec<String> {
 /// The export format is taken from `settings.format`.  Progress events are
 /// emitted on the "export-progress" channel as a plain frame count so the
 /// frontend can drive a progress bar without polling.
+///
+/// The state mutex is NOT held for the duration of the export:
+/// `Project::take_source_for_export` snapshots everything under the lock and
+/// moves the frame source out of the project (replaced with an
+/// `ExportingPlaceholder`), so other commands — layer edits, undo/redo,
+/// cached-frame scrubbing — keep working while frames are encoded.  Fetching
+/// an uncached frame during the export errors with "export in progress"
+/// (surfaced by the frontend as a toast).  The real source is restored
+/// afterwards even if the export panics, so a crash mid-export cannot strand
+/// the placeholder.
 #[tauri::command]
 pub async fn export_project(
     state: State<'_, ProjectState>,
@@ -183,40 +209,40 @@ pub async fn export_project(
     settings: ExportSettings,
     output_path: String,
 ) -> Result<(), AppError> {
-    let mut guard = state.lock().unwrap();
-    let project = guard.as_mut().ok_or(AppError::NoProject)?;
-
     let out = std::path::Path::new(&output_path);
-    let layers = project.layers.clone();
 
-    let frame_indices: Vec<usize> = (0..project.visible_frame_count())
-        .filter_map(|li| project.logical_to_source(li))
-        .collect();
-    let delays = project.visible_delays();
+    // Phase 1 (locked): snapshot the export inputs and swap the frame source
+    // for a placeholder, then release the lock.
+    let mut snapshot = {
+        let mut guard = state.lock().unwrap();
+        let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+        project.take_source_for_export(&settings)?
+    };
 
     let on_progress = |frames_done: usize| {
         let _ = app.emit("export-progress", frames_done);
     };
 
-    match settings.format {
-        export::ExportFormat::Gif => export::export_gif(
-            project.source.as_mut(),
-            &layers,
-            &settings,
-            out,
-            &frame_indices,
-            &delays,
-            on_progress,
-        ),
-        export::ExportFormat::Mp4 | export::ExportFormat::WebM => export::export_video(
-            project.source.as_mut(),
-            &layers,
-            &settings,
-            out,
-            &frame_indices,
-            &delays,
-            on_progress,
-        ),
+    // Phase 2 (unlocked): run the export against the owned source.  Panics
+    // are caught (and re-raised below) so the restore runs on the unwind
+    // path too — otherwise the placeholder would be stranded and every later
+    // frame access would fail with "export in progress".
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        export::run_export(&mut snapshot, &settings, out, on_progress)
+    }));
+
+    // Phase 3 (locked): restore the real source while our placeholder is
+    // still installed (a project opened mid-export is not ours to replace).
+    {
+        let mut guard = state.lock().unwrap();
+        if let Some(project) = guard.project.as_mut() {
+            project.restore_source_if_placeholder(snapshot.source);
+        }
+    }
+
+    match result {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
     }
 }
 
@@ -226,4 +252,64 @@ pub async fn export_project(
 #[tauri::command]
 pub fn check_ffmpeg() -> bool {
     export::ffmpeg_available()
+}
+
+/// Undo the last mutating action. Returns the updated layer list.
+///
+/// Never errors on missing history: with a project open and an empty history
+/// stack it returns the current layer list unchanged, and with no project
+/// open it returns an empty Vec.
+#[tauri::command]
+pub async fn undo(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    Ok(guard.undo().unwrap_or_default())
+}
+
+/// Redo the last undone action. Returns the updated layer list.
+///
+/// Never errors on missing history: with a project open and an empty redo
+/// stack it returns the current layer list unchanged, and with no project
+/// open it returns an empty Vec.
+#[tauri::command]
+pub async fn redo(state: State<'_, ProjectState>) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    Ok(guard.redo().unwrap_or_default())
+}
+
+/// Flip a layer along `axis` ("horizontal" or "vertical") by negating scale.
+#[tauri::command]
+pub async fn flip_layer(
+    id: Uuid,
+    axis: String,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.flip_layer(id, &axis)
+}
+
+/// Clone the layer identified by `id` and insert the copy above it in the stack.
+#[tauri::command]
+pub async fn duplicate_layer(
+    id: Uuid,
+    state: State<'_, ProjectState>,
+) -> Result<LayerInfo, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.duplicate_layer(id)
+}
+
+/// Scale all layers by the given factors.
+#[tauri::command]
+pub async fn scale_all_layers(
+    scale_x: f64,
+    scale_y: f64,
+    state: State<'_, ProjectState>,
+) -> Result<Vec<LayerInfo>, AppError> {
+    let mut guard = state.lock().unwrap();
+    push_history(&mut guard);
+    let project = guard.project.as_mut().ok_or(AppError::NoProject)?;
+    project.scale_all_layers(scale_x, scale_y)
 }

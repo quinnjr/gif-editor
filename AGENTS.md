@@ -21,10 +21,10 @@ pnpm tauri:build
 # Build Flatpak
 flatpak-builder --user --install --force-clean flatpak-build dev.quinnjr.gif-editor.yml
 
-# Backend tests (102 tests, ~91% coverage)
+# Backend tests
 cargo test
 
-# Frontend tests (77 tests, 100% coverage)
+# Frontend tests
 pnpm vitest run
 
 # Coverage reports
@@ -44,10 +44,12 @@ src-tauri/src/
   commands.rs         Tauri IPC command handlers (async, lock ProjectState)
   compositor.rs       Affine warp compositing with bilinear interpolation
   error.rs            AppError enum with Serialize for Tauri transport
-  export.rs           GIF/MP4/WebM export with frame index mapping + audio passthrough
-  fonts.rs            Font loading (bundled LiberationSans-Bold + system fonts)
+  export.rs           GIF/MP4/WebM/still export with frame index mapping + audio passthrough
+  flare_renderer.rs   Procedural lens flare rendering (additive compositing)
+  font_data.rs        Serves embedded TTF bytes to the WebView preview over IPC
+  fonts.rs            Font loading (bundled Anton + LiberationSans-Bold)
   frame_source.rs     FrameSource trait (GIF, video, static image)
-  gif_decoder.rs      GIF decoding with LRU frame cache
+  gif_decoder.rs      GIF decoding with disposal handling + LRU frame cache
   image_source.rs     Static image source with expandable timeline
   layer.rs            Layer model, Keyframe struct, interpolation function
   lib.rs              Tauri app bootstrap
@@ -71,9 +73,8 @@ src/lib/
     ui.svelte.ts      UI state (selection, playback, preview mode)
   utils/
     canvas-renderer.ts  Client-side compositing with affine transforms + keyframe interpolation
-    drag.ts           Pointer drag interaction helper
 
-src-tauri/tests/      Integration tests (one file per module)
+src-tauri/tests/      Integration tests (roughly one file per source module)
 src/tests/            Frontend unit tests (Vitest + jsdom)
 ```
 
@@ -109,7 +110,8 @@ src/tests/            Frontend unit tests (Vitest + jsdom)
 
 ### Testing
 
-- Backend: integration tests in `src-tauri/tests/`, one file per source module
+- Backend: integration tests in `src-tauri/tests/`, roughly one test file per source module; trait and bootstrap modules (`frame_source.rs`, `lib.rs`, `main.rs`) are covered via their implementors
+- Tauri command handlers in `commands.rs` are thin lock-and-delegate wrappers; they are tested through the `AppState`/`Project` methods they delegate to (e.g. `undo_test.rs`, `project_test.rs`) rather than through `tauri::State`
 - Fixtures: `src-tauri/tests/fixtures/` (test.gif, test.mp4, test.png)
 - Frontend: `src/tests/` with Vitest + jsdom, Tauri API mocked via `vi.mock`
 - Run both `cargo test` and `pnpm vitest run` before committing

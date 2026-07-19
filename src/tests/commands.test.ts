@@ -7,21 +7,27 @@ vi.mock('@tauri-apps/api/core', () => ({
 import { invoke } from '@tauri-apps/api/core';
 import {
   openFile,
-  openGif,
   getFrame,
   addImageLayer,
   addTextLayer,
+  addFlareLayer,
   updateLayer,
   removeLayer,
   reorderLayers,
   renderComposite,
   exportProject,
   getLayers,
-  getSystemFonts,
+  getAvailableFonts,
+  getFontData,
   checkFfmpeg,
   deleteFrames,
   restoreFrames,
   getExcludedFrames,
+  undo,
+  redo,
+  flipLayer,
+  duplicateLayer,
+  scaleAllLayers,
 } from '$lib/commands';
 
 const mockedInvoke = vi.mocked(invoke);
@@ -36,14 +42,6 @@ describe('commands', () => {
     mockedInvoke.mockResolvedValue(meta);
     const result = await openFile('/test.gif');
     expect(mockedInvoke).toHaveBeenCalledWith('open_file', { path: '/test.gif' });
-    expect(result).toEqual(meta);
-  });
-
-  it('openGif calls invoke with correct args', async () => {
-    const meta = { frame_count: 5, width: 50, height: 50, delays: [50] };
-    mockedInvoke.mockResolvedValue(meta);
-    const result = await openGif('/test2.gif');
-    expect(mockedInvoke).toHaveBeenCalledWith('open_gif', { path: '/test2.gif' });
     expect(result).toEqual(meta);
   });
 
@@ -118,11 +116,32 @@ describe('commands', () => {
     expect(result).toBe('data:image/png;base64,...');
   });
 
-  it('exportProject calls invoke with correct args', async () => {
+  it('exportProject calls invoke with correct args for animated format', async () => {
     mockedInvoke.mockResolvedValue(undefined);
-    const settings = { format: 'Gif' as const, quality: 80, resize: null };
+    const settings = { format: 'Gif' as const, quality: 80, resize: null, frame_index: null };
     await exportProject(settings, '/out.gif');
     expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.gif' });
+  });
+
+  it('exportProject passes frame_index for still formats', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'Png' as const, quality: 80, resize: null, frame_index: 3 };
+    await exportProject(settings, '/out.png');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.png' });
+  });
+
+  it('exportProject handles Jpeg format with quality', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'Jpeg' as const, quality: 75, resize: null, frame_index: 0 };
+    await exportProject(settings, '/out.jpg');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.jpg' });
+  });
+
+  it('exportProject handles WebP format', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const settings = { format: 'WebP' as const, quality: 80, resize: null, frame_index: 1 };
+    await exportProject(settings, '/out.webp');
+    expect(mockedInvoke).toHaveBeenCalledWith('export_project', { settings, outputPath: '/out.webp' });
   });
 
   it('getLayers calls invoke with no extra args', async () => {
@@ -132,11 +151,18 @@ describe('commands', () => {
     expect(result).toEqual([]);
   });
 
-  it('getSystemFonts calls invoke with no extra args', async () => {
+  it('getAvailableFonts calls invoke with no extra args', async () => {
     mockedInvoke.mockResolvedValue(['Arial', 'Helvetica']);
-    const result = await getSystemFonts();
-    expect(mockedInvoke).toHaveBeenCalledWith('get_system_fonts');
+    const result = await getAvailableFonts();
+    expect(mockedInvoke).toHaveBeenCalledWith('get_available_fonts');
     expect(result).toEqual(['Arial', 'Helvetica']);
+  });
+
+  it('getFontData calls invoke with correct args', async () => {
+    mockedInvoke.mockResolvedValue('QUJD');
+    const result = await getFontData('Anton');
+    expect(mockedInvoke).toHaveBeenCalledWith('get_font_data', { family: 'Anton' });
+    expect(result).toBe('QUJD');
   });
 
   it('checkFfmpeg calls invoke with no extra args', async () => {
@@ -167,5 +193,68 @@ describe('commands', () => {
     const result = await getExcludedFrames();
     expect(mockedInvoke).toHaveBeenCalledWith('get_excluded_frames');
     expect(result).toEqual([2, 4]);
+  });
+
+  it('addFlareLayer calls invoke with null position when omitted', async () => {
+    const layer = { id: 'f1', layer_type: 'flare', intensity: 1, scale: 1, pulse_speed: 0.15 };
+    mockedInvoke.mockResolvedValue(layer);
+    const result = await addFlareLayer();
+    expect(mockedInvoke).toHaveBeenCalledWith('add_flare_layer', { position: null });
+    expect(result).toEqual(layer);
+  });
+
+  it('addFlareLayer passes position when provided', async () => {
+    const layer = { id: 'f2', layer_type: 'flare' };
+    mockedInvoke.mockResolvedValue(layer);
+    await addFlareLayer([100, 200]);
+    expect(mockedInvoke).toHaveBeenCalledWith('add_flare_layer', { position: [100, 200] });
+  });
+
+  it('undo calls invoke with no extra args', async () => {
+    const layers = [{ id: 'l1' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await undo();
+    expect(mockedInvoke).toHaveBeenCalledWith('undo');
+    expect(result).toEqual(layers);
+  });
+
+  it('redo calls invoke with no extra args', async () => {
+    const layers = [{ id: 'l1' }, { id: 'l2' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await redo();
+    expect(mockedInvoke).toHaveBeenCalledWith('redo');
+    expect(result).toEqual(layers);
+  });
+
+  it('flipLayer calls invoke with correct args', async () => {
+    const updated = { id: 'l1', flip_h: true };
+    mockedInvoke.mockResolvedValue(updated);
+    const result = await flipLayer('l1', 'horizontal');
+    expect(mockedInvoke).toHaveBeenCalledWith('flip_layer', { id: 'l1', axis: 'horizontal' });
+    expect(result).toEqual(updated);
+  });
+
+  it('flipLayer supports the vertical axis', async () => {
+    const updated = { id: 'l1', flip_v: true };
+    mockedInvoke.mockResolvedValue(updated);
+    const result = await flipLayer('l1', 'vertical');
+    expect(mockedInvoke).toHaveBeenCalledWith('flip_layer', { id: 'l1', axis: 'vertical' });
+    expect(result).toEqual(updated);
+  });
+
+  it('duplicateLayer calls invoke with correct args', async () => {
+    const copy = { id: 'l2', name: 'Layer copy' };
+    mockedInvoke.mockResolvedValue(copy);
+    const result = await duplicateLayer('l1');
+    expect(mockedInvoke).toHaveBeenCalledWith('duplicate_layer', { id: 'l1' });
+    expect(result).toEqual(copy);
+  });
+
+  it('scaleAllLayers calls invoke with correct args', async () => {
+    const layers = [{ id: 'l1' }, { id: 'l2' }];
+    mockedInvoke.mockResolvedValue(layers);
+    const result = await scaleAllLayers(1.5, 0.75);
+    expect(mockedInvoke).toHaveBeenCalledWith('scale_all_layers', { scaleX: 1.5, scaleY: 0.75 });
+    expect(result).toEqual(layers);
   });
 });
