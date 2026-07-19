@@ -33,6 +33,38 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["gif"],
+        "mimeType": "image/gif",
+        "description": "GIF image"
+      },
+      {
+        "ext": ["mp4"],
+        "mimeType": "video/mp4",
+        "description": "MP4 video"
+      },
+      {
+        "ext": ["webm"],
+        "mimeType": "video/webm",
+        "description": "WebM video"
+      },
+      {
+        "ext": ["png"],
+        "mimeType": "image/png",
+        "description": "PNG image"
+      },
+      {
+        "ext": ["jpg", "jpeg"],
+        "mimeType": "image/jpeg",
+        "description": "JPEG image"
+      },
+      {
+        "ext": ["webp"],
+        "mimeType": "image/webp",
+        "description": "WebP image"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

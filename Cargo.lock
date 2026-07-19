@@ -1335,6 +1335,7 @@ name = "gif-editor"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "base64 0.22.1",
  "gif 0.13.3",
  "image",
  "imagequant",

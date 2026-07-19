@@ -1,3 +1,12 @@
 [workspace]
 members = ["src-tauri"]
 resolver = "2"
+
+# Binary-size optimizations for shipped bundles. `panic = "abort"` is
+# deliberately omitted: a stray panic in a GUI session should not kill the
+# whole process.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+opt-level = "s"
