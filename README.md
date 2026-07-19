@@ -6,15 +6,17 @@ Built with [Tauri v2](https://tauri.app/) (Rust backend) and [Svelte 5](https://
 
 ## Features
 
-- **Multi-format input** — open GIF, MP4, WebM, PNG, JPG, or WebP as the base project
+- **Multi-format input** — open GIF (including delta-optimized GIFs with frame disposal), MP4, WebM, PNG, JPG, or WebP as the base project
 - **Animated GIF overlays** — add animated GIFs as layers that loop in sync with the timeline
-- **Layer-based editing** — image and text overlays with per-frame control via draggable frame ranges
-- **Affine transforms** — non-uniform scale and skew via interactive canvas drag handles (corners for scale, edges for skew, Shift for free-form)
+- **Layer-based editing** — image, text, and flare overlays with per-frame control via draggable frame ranges, reordering, and duplication
+- **Affine transforms** — non-uniform scale, skew, and rotation via interactive canvas drag handles (corners for scale, edges for skew, Shift for free-form, Alt to resize all layers) plus flip H/V and rotation controls
 - **Keyframe animation** — animate position and opacity across frames with linear interpolation; drag on any frame to set a keyframe
 - **Frame management** — soft-delete frames with multi-select (Ctrl+click, Shift+click), Keep/Delete/Restore actions
-- **Real-time preview** — client-side Canvas compositing with full affine transform support
-- **Text with stroke outlines** — configurable font, size, color, and meme-style stroke
-- **Export to GIF, MP4, or WebM** — GIF uses imagequant quantization; video uses ffmpeg with audio preservation
+- **Undo/redo** — snapshot-based history (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y)
+- **Real-time preview** — client-side Canvas compositing that matches the export compositor
+- **Meme-ready text** — bundled Impact-style font (Anton), word wrap, alignment, configurable size, color, and stroke outline
+- **Solar flare layers** — procedural lens flares with intensity, scale, and pulse animation, composited additively
+- **Export to GIF, MP4, WebM, or stills (PNG/JPEG/WebP)** — GIF uses imagequant quantization; video uses ffmpeg with audio preservation
 - **Dark mode** — native dark theme for all UI elements including dropdown menus
 
 ## Prerequisites
@@ -50,6 +52,11 @@ pnpm tauri:build
 # Bundles are in target/release/bundle/
 ```
 
+`tauri:build` sets `NO_STRIP=true` to skip Tauri's post-build strip step,
+which breaks AppImage packaging (linuxdeploy patches the binary after
+bundling). Symbols are still stripped by Cargo via
+`[profile.release] strip = "symbols"`.
+
 ### Flatpak
 
 ```bash
@@ -65,18 +72,20 @@ src-tauri/              Rust backend
     commands.rs         Tauri IPC command handlers
     compositor.rs       Affine warp compositing with bilinear interpolation
     error.rs            Typed error enum
-    export.rs           GIF/MP4/WebM export pipeline with audio passthrough
-    fonts.rs            Font loading (bundled + system)
+    export.rs           GIF/MP4/WebM/still-image export pipeline with audio passthrough
+    flare_renderer.rs   Procedural lens flare rendering
+    font_data.rs        Serves embedded TTF bytes to the WebView preview over IPC
+    fonts.rs            Font loading (bundled Anton + LiberationSans-Bold)
     frame_source.rs     FrameSource trait (GIF, video, static image)
-    gif_decoder.rs      GIF decoding with LRU frame cache
+    gif_decoder.rs      GIF decoding with disposal handling and LRU frame cache
     image_source.rs     Static image source with expandable timeline
     layer.rs            Layer model, keyframes, affine interpolation
     lib.rs              App setup, module registration
-    project.rs          Project state, frame exclusion, index mapping
+    project.rs          Project state, frame exclusion, index mapping, undo history
     text_renderer.rs    Text rasterization via ab_glyph
     video_decoder.rs    MP4/WebM decoding via ffmpeg subprocess
-  fonts/                Bundled font (LiberationSans-Bold)
-  tests/                42 backend integration tests
+  fonts/                Bundled fonts (Anton, LiberationSans-Bold)
+  tests/                Backend integration tests
 
 src/                    Svelte 5 frontend
   lib/
@@ -112,7 +121,7 @@ Communication happens via async Tauri commands (frontend calls Rust) and events 
 ## Testing
 
 ```bash
-# Run backend tests (42 tests)
+# Run backend tests
 cargo test
 
 # Run frontend tests
